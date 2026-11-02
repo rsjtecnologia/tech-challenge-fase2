@@ -54,7 +54,23 @@ Os notebooks reutilizam os módulos da aplicação; não duplicam algoritmos.
 Gemini só é chamado pelas ações interativas solicitadas pelo avaliador.
 
 Os resultados são salvos em `src\db\outputs`. A otimização pode levar vários
-minutos. Para executar diretamente, use:
+minutos. A célula `from src.optimization.cli import main` executa os 30
+experimentos (dois estudos × cinco modelos × três configurações); ela só
+libera o notebook seguinte quando termina. O executor exibe os logs em tempo
+real e, a cada 30 segundos, informa que ainda aguarda o kernel. Esse aviso
+não prova avanço do treinamento. O aviso Jupyter sobre TCP sem criptografia
+não é um erro de treino.
+
+Para acompanhar uma execução já iniciada com a versão anterior do executor,
+abra outro terminal **na mesma cópia do projeto** e execute:
+
+```powershell
+Get-Content .\src\db\outputs\phase2-genetic\optimization.log -Tail 10 -Wait
+```
+
+Logs `model_start`, `experiment_complete` e `model_complete` mostram as etapas;
+Ctrl+C nesse segundo terminal encerra apenas a visualização do log. Se o
+arquivo não existir, confira a pasta da execução. Para executar diretamente, use:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.optimization.cli

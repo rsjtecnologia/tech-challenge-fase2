@@ -7,6 +7,9 @@ import argparse
 import sys
 import warnings
 from pathlib import Path
+from threading import Event, Thread
+from time import monotonic
+from typing import Any
 
 import nbformat
 from nbclient import NotebookClient
@@ -22,6 +25,26 @@ warnings.filterwarnings(
     "ignore",
     message=".*Proactor event loop does not implement add_reader.*",
 )
+
+
+class ProgressNotebookClient(NotebookClient):
+    def process_message(
+        self, msg: dict[str, Any], cell: nbformat.NotebookNode, cell_index: int
+    ) -> nbformat.NotebookNode | None:
+        if msg["msg_type"] == "stream":
+            stream = sys.stderr if msg["content"]["name"] == "stderr" else sys.stdout
+            print(msg["content"]["text"], end="", file=stream, flush=True)
+        return super().process_message(msg, cell, cell_index)
+
+
+def _report_wait(stop: Event, started: float, label: str) -> None:
+    while not stop.wait(30):
+        elapsed = monotonic() - started
+        print(
+            f"{label} em execução há {elapsed:.0f}s; aguardando o kernel "
+            "(não confirma progresso do treinamento).",
+            flush=True,
+        )
 
 
 def _preview(source: str, max_len: int = 64) -> str:
@@ -89,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Diretório: {notebook_dir}")
     print("")
 
-    client = NotebookClient(
+    client = ProgressNotebookClient(
         nb,
         timeout=None,
         kernel_name="python3",
@@ -100,8 +123,18 @@ def main(argv: list[str] | None = None) -> int:
     with client.setup_kernel():
         for index, cell in selected_cells:
             done += 1
-            print(f"[{done}/{code_total}] {_preview(cell.source)}", flush=True)
-            client.execute_cell(cell, index)
+            label = f"[{done}/{code_total}]"
+            print(f"{label} {_preview(cell.source)}", flush=True)
+            started = monotonic()
+            stop = Event()
+            reporter = Thread(target=_report_wait, args=(stop, started, label), daemon=True)
+            reporter.start()
+            try:
+                client.execute_cell(cell, index)
+            finally:
+                stop.set()
+                reporter.join()
+            print(f"{label} concluída em {monotonic() - started:.1f}s", flush=True)
 
     output_path = args.output.resolve() if args.output else path
     output_path.parent.mkdir(parents=True, exist_ok=True)

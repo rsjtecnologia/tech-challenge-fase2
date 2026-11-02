@@ -4,16 +4,48 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import redirect_stdout, redirect_stderr
+from io import StringIO
+from unittest.mock import Mock, patch
 
 import nbformat
 
-from run_notebook import _arguments, _code_cells
+from run_notebook import ProgressNotebookClient, _arguments, _code_cells, _report_wait
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotebookExecutorTests(unittest.TestCase):
+    def test_wait_notice_stops_when_cell_finishes(self) -> None:
+        stop = Mock()
+        stop.wait.side_effect = [False, True]
+        output = StringIO()
+        with patch("run_notebook.monotonic", return_value=31), redirect_stdout(output):
+            _report_wait(stop, 1, "[2/3]")
+        self.assertIn("30s", output.getvalue())
+        self.assertIn("kernel", output.getvalue())
+        self.assertEqual(stop.wait.call_count, 2)
+
+    def test_kernel_streams_are_forwarded_immediately_and_kept_in_notebook(self) -> None:
+        cell = nbformat.v4.new_code_cell("print('progress')")
+        notebook = nbformat.v4.new_notebook(cells=[cell])
+        client = ProgressNotebookClient(notebook)
+        client.clear_before_next_output = False
+        stdout, stderr = StringIO(), StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            for name in ("stdout", "stderr"):
+                client.process_message(
+                    {"msg_type": "stream", "header": {"msg_type": "stream"},
+                     "parent_header": {}, "content": {
+                        "name": name, "text": f"{name} progress\n",
+                    }},
+                    cell, 0,
+                )
+                target = stdout if name == "stdout" else stderr
+                self.assertIn(f"{name} progress", target.getvalue())
+        self.assertEqual(len(cell.outputs), 2)
+
     def test_skip_interactive_omits_tagged_cells_only(self) -> None:
         notebook = nbformat.v4.new_notebook(cells=[
             nbformat.v4.new_code_cell("print('pipeline')"),
@@ -58,6 +90,8 @@ class NotebookExecutorTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=90,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("executed", result.stdout)
+            self.assertIn("conclu", result.stdout)
             self.assertEqual(path.read_bytes(), original)
             executed = nbformat.read(output, as_version=4)
             self.assertIn("executed", executed.cells[0].outputs[0].text)

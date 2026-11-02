@@ -1,4 +1,6 @@
 param(
+    [switch]$NoBrowser,
+
     [ValidateSet("Gemini", "OpenAI", "Groq", "Qwen", "Ollama")]
     [string]$Provider = "Gemini",
 
@@ -61,6 +63,7 @@ foreach ($name in $environmentNames) {
 $key = $null
 $secureKey = $null
 $pointer = [IntPtr]::Zero
+$browserProcess = $null
 
 try {
     if ($Provider -eq "Ollama") {
@@ -190,12 +193,24 @@ try {
     Write-Host "Documentacao da API: http://127.0.0.1:$Port/docs"
     Write-Host "Mantenha este terminal aberto; Ctrl+C encerra o servidor."
     Write-Host ""
+    if (-not $NoBrowser) {
+        $browserScript = Join-Path $root "scripts\open_browser.py"
+        if (-not (Test-Path -LiteralPath $browserScript -PathType Leaf)) {
+            throw "Preparador do navegador nao encontrado: $browserScript"
+        }
+        $browserProcess = Start-Process -FilePath $venvPython -ArgumentList @(
+            "`"$browserScript`"", "--port", [string]$Port
+        ) -NoNewWindow -PassThru
+    }
     & $venvPython -m uvicorn src.web.app:app --host 127.0.0.1 --port $Port --reload
     if ($LASTEXITCODE -ne 0) {
         throw "A aplicacao API/web encerrou com codigo $LASTEXITCODE."
     }
 }
 finally {
+    if ($browserProcess -and -not $browserProcess.HasExited) {
+        Stop-Process -Id $browserProcess.Id -ErrorAction SilentlyContinue
+    }
     if ($pointer -ne [IntPtr]::Zero) {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
     }
