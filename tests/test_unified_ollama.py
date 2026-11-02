@@ -57,7 +57,7 @@ class UnifiedOllamaLauncherTests(unittest.TestCase):
                 port = listener.getsockname()[1]
             command = (
                 f'$env:PYTHONPATH="{modules}"; $env:EXPECTED_MODEL="custom-model"; '
-                f'& "{root / "run.ps1"}" -Provider Ollama -Model custom-model -Port {port}'
+                f'& "{root / "run.ps1"}" -Provider Ollama -Model custom-model -Port {port} -NoBrowser'
             )
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command",

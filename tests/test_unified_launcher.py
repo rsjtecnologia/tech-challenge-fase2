@@ -26,6 +26,8 @@ class UnifiedLauncherTests(unittest.TestCase):
         (root / "pre_execucao.ps1").write_text("# mocked pre-execution\n", encoding="utf-8")
         (root / "src" / "web").mkdir(parents=True)
         (root / "src" / "web" / "app.py").write_text("# mocked app\n", encoding="utf-8")
+        (root / "scripts").mkdir()
+        shutil.copyfile(ROOT / "scripts" / "open_browser.py", root / "scripts" / "open_browser.py")
         modules = root / "modules"
         modules.mkdir()
         checks = "\n".join(
@@ -41,6 +43,11 @@ class UnifiedLauncherTests(unittest.TestCase):
         return modules
 
     def test_single_launcher_configures_provider_and_starts_web(self) -> None:
+        for no_browser in (False, True):
+            with self.subTest(no_browser=no_browser):
+                self.assert_launcher_starts_web(no_browser)
+
+    def assert_launcher_starts_web(self, no_browser: bool) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             modules = self.prepare_project(root, {
@@ -63,7 +70,12 @@ class UnifiedLauncherTests(unittest.TestCase):
                 'if ($Uri -ne "https://generativelanguage.googleapis.com/v1beta/openai/models") { throw "url" }; '
                 'if ($Headers.Authorization -ne "Bearer fake-test-key") { throw "auth" }; '
                 'return @{data=@(@{id="models/gemini-3.1-flash-lite"})} }; '
-                f'& "{root / "run.ps1"}" -Port {port}; '
+                'function Start-Process { param($FilePath,$ArgumentList,[switch]$NoNewWindow,[switch]$PassThru) '
+                'if (-not (Test-Path -LiteralPath $FilePath)) { throw "python path" }; '
+                f'if ($ArgumentList[0] -ne \'"{root / "scripts" / "open_browser.py"}"\') {{ throw "browser script" }}; '
+                f'if ($ArgumentList[1] -ne "--port" -or $ArgumentList[2] -ne "{port}") {{ throw "browser port" }}; '
+                'Write-Host "BROWSER_HELPER_STARTED"; return [pscustomobject]@{HasExited=$true} }; '
+                f'& "{root / "run.ps1"}" -Port {port} {"-NoBrowser" if no_browser else ""}; '
                 'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }'
             )
             result = subprocess.run(
@@ -74,6 +86,7 @@ class UnifiedLauncherTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("API_WEB_STARTED", result.stdout)
+        self.assertEqual("BROWSER_HELPER_STARTED" in result.stdout, not no_browser)
         self.assertNotIn("fake-test-key", result.stdout + result.stderr)
 
     def test_busy_port_fails_before_provider_or_web_startup(self) -> None:

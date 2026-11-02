@@ -110,7 +110,9 @@ Depois de gerar os resultados, execute na raiz do projeto:
 3. Aguarde a validação de acesso e a mensagem **API/web iniciando**.
    A validação consulta os modelos disponíveis; não garante cota para gerar
    respostas. Se falhar, leia a mensagem antes de tentar novamente.
-4. Mantenha esse terminal aberto e acesse:
+4. O navegador abre automaticamente quando a API responde. Mantenha esse
+   terminal aberto. Para desativar a abertura automática, use
+   `.\run.ps1 -NoBrowser`. Se o navegador não abrir, acesse manualmente:
 
 - `http://127.0.0.1:8020/` — câncer de mama
 - `http://127.0.0.1:8020/pcos` — SOP/PCOS
