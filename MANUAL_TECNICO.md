@@ -12,8 +12,8 @@ Requisitos: Windows, PowerShell, Git, Python 3 e internet para instalar
 dependências. Clone o repositório e prepare o ambiente na raiz:
 
 ```powershell
-git clone https://github.com/rsjtecnologia/tech-challenge-fase1-1.git
-Set-Location .\tech-challenge-fase1-1
+git clone https://github.com/rsjtecnologia/tech-challenge-fase2.git
+Set-Location .\tech-challenge-fase2
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 . .\pre_execucao.ps1
 ```
