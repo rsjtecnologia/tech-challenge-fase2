@@ -20,6 +20,10 @@ Set-Location .\tech-challenge-fase1-1
 .\run_notebooks.ps1
 ```
 
+Escolha `T` para todos os notebooks (Fases 1 e 2), ou use
+`.\run_notebooks.ps1 -All` para executar sem menus. Widgets e consultas Gemini
+são abertos pela opção `4`, com a API ativa em outro terminal.
+
 Veja no manual como gerar os resultados, configurar o Gemini e iniciar web/API.
 O treino e os algoritmos genéticos rodam localmente; Gemini é usado para gerar
 interpretações e instruções em linguagem natural.

@@ -30,10 +30,28 @@ resultados e artefatos são gerados localmente e não estão no Git.
 
 No menu:
 
-1. `T` executa os pipelines clínicos e gera os exports para os dashboards.
-2. Responda `S` para voltar ao menu e selecione `3`.
-3. Selecione `T` para executar os três experimentos genéticos para ambos os
-   estudos.
+1. `T` executa **todos os notebooks** na ordem: EDA e pipelines clínicos,
+   experimentos genéticos dos dois estudos, validações de integração e rotas
+   demo/Olist/híbridas. Não exige API nem chave.
+2. As células com widgets são puladas no batch; para mapa e consultas Gemini,
+   inicie a API e use `4` para abrir os notebooks no Jupyter.
+3. Para executar tudo sem menus: `.\run_notebooks.ps1 -All`.
+
+O launcher verifica se todos os `.ipynb` estão registrados; notebooks novos não
+registrados geram erro explícito. Execuções são salvas em
+`src\db\outputs\executed-notebooks`, preservando os notebooks originais.
+Os grupos `5` (experimentos/integração) e `6` (rotas) também podem ser executados
+separadamente; `3` mantém a otimização via CLI por estudo.
+
+| Notebook da Fase 2 | Cobertura |
+|---|---|
+| `notebooks\phase2\01_otimizacao_modelos.ipynb` | Três experimentos por classificador/estudo, persistência, comparação baseline/GA e interpretação interativa. |
+| `notebooks\phase2\02_integracao_validacao.ipynb` | Contratos API, contexto agregado, interpretação local, cache simulado e inspeção do HPA; não implanta cluster. |
+| `notebooks\medical-routes\01_otimizacao_rotas.ipynb` | Otimização demo/Olist/híbrida, persistência/histórico, relatório local e interface com mapa, manifesto, filtros e assistente. |
+
+As interfaces dos exports clínicos também demonstram métricas e perguntas.
+Os notebooks reutilizam os módulos da aplicação; não duplicam algoritmos.
+Gemini só é chamado pelas ações interativas solicitadas pelo avaliador.
 
 Os resultados são salvos em `src\db\outputs`. A otimização pode levar vários
 minutos. Para executar diretamente, use:

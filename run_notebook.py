@@ -43,6 +43,10 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="Pula células marcadas com a tag 'interactive' (widgets/API local).",
     )
     parser.add_argument("notebook", type=Path, help="Caminho do notebook .ipynb.")
+    parser.add_argument(
+        "--output", type=Path,
+        help="Salvar a execução neste arquivo, preservando o notebook original.",
+    )
     return parser.parse_args(argv)
 
 
@@ -99,9 +103,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{done}/{code_total}] {_preview(cell.source)}", flush=True)
             client.execute_cell(cell, index)
 
-    nbformat.write(nb, path)
+    output_path = args.output.resolve() if args.output else path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    nbformat.write(nb, output_path)
     print("")
-    print(f"Salvo: {path.name}")
+    print(f"Salvo: {output_path}")
     return 0
 
 

@@ -2,6 +2,8 @@
 # Uso: .\run_notebooks.ps1
 
 param(
+    [switch]$All,
+
     [ValidateRange(1, 65535)]
     [int]$ApiPort = 8020
 )
@@ -37,6 +39,14 @@ $notebooksInterativos = @{
         Nome = "Rotas médicas - Fase 2"
         Caminho = "notebooks\medical-routes\01_otimizacao_rotas.ipynb"
     }
+    "4" = @{
+        Nome = "Experimentos dos modelos - Fase 2"
+        Caminho = "notebooks\phase2\01_otimizacao_modelos.ipynb"
+    }
+    "5" = @{
+        Nome = "Integração e validação - Fase 2"
+        Caminho = "notebooks\phase2\02_integracao_validacao.ipynb"
+    }
 }
 
 if (-not (Test-Path $preExecucao)) {
@@ -61,6 +71,7 @@ $estudos = @{
         Nome = "Câncer de mama (Wisconsin)"
         Pasta = "notebooks/breast-cancer-wisconsin-data"
         Notebooks = @(
+            "02_analise_exploratoria.ipynb"
             "03_preprocessamento.ipynb"
             "04_modelagem_treino.ipynb"
             "05_avaliacao_metricas.ipynb"
@@ -73,13 +84,49 @@ $estudos = @{
         Nome = "SOP (PCOS)"
         Pasta = "notebooks/polycystic-ovary-syndrome-pcos"
         Notebooks = @(
+            "01_analise_exploratoria.ipynb"
             "02_preprocessamento.ipynb"
             "03_modelagem_treino.ipynb"
             "04_avaliacao_metricas.ipynb"
             "05_export_web.ipynb"
         )
     }
+    "5" = @{
+        Nome = "Fase 2 - experimentos e integração"
+        Pasta = "notebooks\phase2"
+        Notebooks = @(
+            "01_otimizacao_modelos.ipynb"
+            "02_integracao_validacao.ipynb"
+        )
+    }
+    "6" = @{
+        Nome = "Fase 2 - rotas e distribuição médica"
+        Pasta = "notebooks\medical-routes"
+        Notebooks = @("01_otimizacao_rotas.ipynb")
+    }
 }
+
+function Assert-NotebookCoverage {
+    $registered = @(
+        foreach ($study in $estudos.Values) {
+            foreach ($name in $study.Notebooks) {
+                [System.IO.Path]::GetFullPath((Join-Path $raiz (Join-Path $study.Pasta $name)))
+            }
+        }
+    )
+    foreach ($path in $registered) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Notebook registrado nao encontrado: $path"
+        }
+    }
+    $unregistered = @(Get-ChildItem -LiteralPath (Join-Path $raiz "notebooks") -Filter "*.ipynb" -Recurse -File |
+        Where-Object { $_.FullName -notmatch '[\\/]\.ipynb_checkpoints[\\/]' -and $_.FullName -notin $registered })
+    if ($unregistered.Count -gt 0) {
+        throw "Registre estes notebooks no launcher: $($unregistered.FullName -join ', ')"
+    }
+}
+
+Assert-NotebookCoverage
 
 function Show-EstudoMenu {
     Write-Host ""
@@ -91,7 +138,7 @@ function Show-EstudoMenu {
         Write-Host ("  [{0}] {1}" -f $chave, $estudos[$chave].Nome)
     }
     Write-Host ""
-    Write-Host "  [T] Executar todos os estudos (na ordem)"
+    Write-Host "  [T] Executar TODOS os notebooks (Fases 1 e 2, na ordem)"
     Write-Host "  [3] Executar otimização genética dos modelos (Fase 2)"
     Write-Host "  [4] Abrir notebooks interativos (Fase 2: modelos e rotas)"
     Write-Host "  [S] Sair"
@@ -183,7 +230,7 @@ function Start-InteractiveNotebook {
         Write-Host "Inicie .\run.ps1 em outro terminal antes de executar a célula da interface."
         Write-Host "A fonte Olist exige os CSVs em src\db\models\dataset_rotasBR; escolha demo para dados fictícios."
     }
-    elseif ($Notebook.Caminho -match "08_export_web|05_export_web") {
+    elseif ($Notebook.Caminho -match "08_export_web|05_export_web|01_otimizacao_modelos") {
         Write-Host "Para a seção interativa, execute .\run.ps1 em outro terminal e gere antes os resultados genéticos."
     }
     Set-Location $raiz
@@ -275,7 +322,9 @@ function Invoke-Notebook {
     Write-Host "Executando: $($Estudo.Nome) / $Nome ..." -ForegroundColor Yellow
     Write-Host ""
 
-    & $venvPython $executor --skip-interactive $caminho
+    $outputDirectory = Join-Path $raiz (Join-Path "src\db\outputs\executed-notebooks" (Split-Path $Estudo.Pasta -Leaf))
+    $outputPath = Join-Path $outputDirectory $Nome
+    & $venvPython $executor --skip-interactive --output $outputPath $caminho
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao executar o notebook: $Nome"
     }
@@ -316,7 +365,7 @@ function Invoke-AllEstudos {
     }
 
     Write-Host ""
-    Write-Host "Todos os estudos foram executados com sucesso." -ForegroundColor Green
+    Write-Host "Todos os notebooks foram executados com sucesso. Celulas interativas foram puladas; use a opcao 4 para abrir os widgets." -ForegroundColor Green
 }
 
 function Invoke-EstudoLoop {
@@ -375,6 +424,11 @@ function Invoke-EstudoLoop {
             break
         }
     }
+}
+
+if ($All) {
+    Invoke-AllEstudos
+    return
 }
 
 while ($true) {
