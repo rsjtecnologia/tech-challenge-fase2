@@ -1,0 +1,207 @@
+param(
+    [ValidateSet("Gemini", "OpenAI", "Groq", "Qwen", "Ollama")]
+    [string]$Provider = "Gemini",
+
+    [ValidateNotNullOrEmpty()]
+    [string]$Model,
+
+    [ValidateRange(1, 65535)]
+    [int]$Port = 8020,
+
+    [ValidateRange(1, 300)]
+    [int]$TimeoutSeconds = 45,
+
+    [ValidateSet("ap-southeast-1", "cn-beijing", "eu-central-1", "cn-hongkong", "ap-northeast-1", "us-east-1")]
+    [string]$QwenRegion = "ap-southeast-1"
+)
+
+$ErrorActionPreference = "Stop"
+if ($Provider -ne "Qwen" -and $PSBoundParameters.ContainsKey("QwenRegion")) {
+    throw "-QwenRegion so pode ser usado com -Provider Qwen."
+}
+
+$root = $PSScriptRoot
+$application = Join-Path $root "src\web\app.py"
+$preExecution = Join-Path $root "pre_execucao.ps1"
+$venvPython = Join-Path $root ".venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $application -PathType Leaf)) {
+    throw "Aplicacao web nao encontrada: $application"
+}
+if (-not (Test-Path -LiteralPath $preExecution -PathType Leaf)) {
+    throw "Script de preparacao nao encontrado: $preExecution"
+}
+
+$listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+if (@($listeners | Where-Object { $_.Port -eq $Port }).Count -gt 0) {
+    throw "A porta $Port da aplicacao esta ocupada. Encerre a execucao anterior com Ctrl+C ou escolha outra porta, por exemplo .\run.ps1 -Port $($Port % 65535 + 1). Nenhum processo foi encerrado."
+}
+
+# Keep the active virtual environment in this process for the server lifetime.
+. $preExecution
+if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+    throw "Python do ambiente virtual nao encontrado: $venvPython."
+}
+Set-Location $root
+
+$environmentNames = @(
+    "LLM_PROVIDER",
+    "LLM_BASE_URL",
+    "LLM_MODEL",
+    "LLM_API_KEY",
+    "LLM_TIMEOUT_SECONDS",
+    "LLM_NUM_PREDICT",
+    "LLM_ENABLE_THINKING",
+    "LLM_REASONING_EFFORT",
+    "APP_PROFILE"
+)
+$previousEnvironment = @{}
+foreach ($name in $environmentNames) {
+    $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+}
+$key = $null
+$secureKey = $null
+$pointer = [IntPtr]::Zero
+
+try {
+    if ($Provider -eq "Ollama") {
+        if (-not $Model) { $Model = "llama3.2:latest" }
+        $ollamaScript = Join-Path $root "scripts\start_ollama.ps1"
+        if (-not (Test-Path -LiteralPath $ollamaScript -PathType Leaf)) {
+            throw "Preparador do Ollama nao encontrado: $ollamaScript"
+        }
+        Write-Host "Preparando Podman/Ollama local..." -ForegroundColor Cyan
+        & $ollamaScript -Model $Model
+        if ($env:LLM_PROVIDER -ne "ollama" -or $env:LLM_MODEL -ne $Model) {
+            throw "Ollama nao concluiu a configuracao. A aplicacao nao sera iniciada."
+        }
+        $env:APP_PROFILE = "full"
+        if (-not $env:LLM_TIMEOUT_SECONDS) { $env:LLM_TIMEOUT_SECONDS = "180" }
+    }
+    else {
+        if ($Provider -eq "Gemini") {
+            $baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai"
+            $key = $env:GEMINI_API_KEY
+            if (-not $Model) { $Model = "gemini-3.1-flash-lite" }
+            Write-Host "Crie sua chave em https://aistudio.google.com/apikey e confira a cota do modelo."
+            Write-Host "No Free Tier, o conteudo pode ser usado para melhorar produtos Google. Use somente dados agregados/simulados."
+        }
+        elseif ($Provider -eq "Groq") {
+            $baseUrl = "https://api.groq.com/openai/v1"
+            $key = $env:GROQ_API_KEY
+            if (-not $Model) { $Model = "llama-3.1-8b-instant" }
+        }
+        elseif ($Provider -eq "Qwen") {
+            $baseUrl = "https://$QwenRegion.maas.qwencloudapi.com/compatible-mode/v1"
+            $key = $env:DASHSCOPE_API_KEY
+            if (-not $Model) { $Model = "qwen-flash" }
+            Write-Host "QwenCloud: regiao $QwenRegion; chave API pay-as-you-go."
+            Write-Host "Crie a chave em https://home.qwencloud.com/api-keys."
+        }
+        else {
+            $baseUrl = "https://api.openai.com/v1"
+            $key = $env:OPENAI_API_KEY
+            if (-not $Model) { $Model = "gpt-4o-mini" }
+        }
+        if ([string]::IsNullOrWhiteSpace($Model) -or $Model -match "\s") {
+            throw "Informe um identificador de modelo valido para $Provider."
+        }
+
+        Write-Host "Modo online: $Provider / $Model. Sujeito a cobranca e limites da conta." -ForegroundColor Cyan
+        Write-Host "Somente contexto agregado/simulado e a pergunta sao enviados ao provedor. Nao informe dados identificaveis."
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            $secureKey = Read-Host "Chave API de $Provider (entrada oculta; nao sera salva)" -AsSecureString
+            $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+            try {
+                $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+            }
+            finally {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+                $pointer = [IntPtr]::Zero
+                $secureKey.Dispose()
+                $secureKey = $null
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            throw "Chave API ausente. A aplicacao nao sera iniciada."
+        }
+        $key = $key.Trim()
+
+        Write-Host "Validando acesso ao modelo..."
+        try {
+            if ($Provider -eq "Qwen") {
+                Write-Host "O preflight Qwen envia uma completion curta sintetica, sujeita a cobranca."
+                $probe = @{
+                    model = $Model
+                    messages = @(@{ role = "user"; content = 'Return JSON only: {"ok":true}.' })
+                    max_tokens = 32
+                    enable_thinking = $false
+                    response_format = @{ type = "json_object" }
+                } | ConvertTo-Json -Depth 5 -Compress
+                $completion = Invoke-RestMethod -Uri "$baseUrl/chat/completions" -Method Post `
+                    -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" `
+                    -Body $probe -TimeoutSec $TimeoutSeconds
+            }
+            else {
+                $modelInfo = Invoke-RestMethod -Uri "$baseUrl/models" `
+                    -Headers @{ Authorization = "Bearer $key" } -TimeoutSec $TimeoutSeconds
+            }
+        }
+        catch {
+            $status = "indisponivel"
+            if ($_.Exception.Response) {
+                $status = [int]$_.Exception.Response.StatusCode
+            }
+            throw "Nao foi possivel validar $Provider (HTTP $status). Confira chave, acesso ao modelo, rede e limites. Aplicacao nao iniciada."
+        }
+
+        if ($Provider -eq "Qwen") {
+            try {
+                $probeResult = $completion.choices[0].message.content | ConvertFrom-Json
+                if ($probeResult.ok -isnot [bool] -or -not $probeResult.ok -or $completion.choices[0].finish_reason -ne "stop") {
+                    throw "Invalid probe"
+                }
+            }
+            catch {
+                throw "Qwen nao retornou o JSON de teste esperado. Confira o modelo e o modo sem thinking. Aplicacao nao iniciada."
+            }
+        }
+        else {
+            $availableModel = @($modelInfo.data | Where-Object {
+                $_.id -eq $Model -or ($Provider -eq "Gemini" -and $_.id -eq "models/$Model")
+            })
+            if ($availableModel.Count -eq 0) {
+                throw "O provedor nao confirmou o modelo solicitado. Aplicacao nao iniciada."
+            }
+        }
+
+        $env:LLM_PROVIDER = "openai_compatible"
+        $env:LLM_BASE_URL = $baseUrl
+        $env:LLM_MODEL = $Model
+        $env:LLM_API_KEY = $key
+        $env:LLM_TIMEOUT_SECONDS = [string]$TimeoutSeconds
+        $env:LLM_NUM_PREDICT = $null
+        $env:LLM_ENABLE_THINKING = if ($Provider -eq "Qwen") { "false" } else { $null }
+        $env:LLM_REASONING_EFFORT = if ($Provider -eq "Gemini") { "minimal" } else { $null }
+        $env:APP_PROFILE = "full"
+    }
+
+    Write-Host ""
+    Write-Host "API/web iniciando em http://127.0.0.1:$Port" -ForegroundColor Green
+    Write-Host "Documentacao da API: http://127.0.0.1:$Port/docs"
+    Write-Host "Mantenha este terminal aberto; Ctrl+C encerra o servidor."
+    Write-Host ""
+    & $venvPython -m uvicorn src.web.app:app --host 127.0.0.1 --port $Port --reload
+    if ($LASTEXITCODE -ne 0) {
+        throw "A aplicacao API/web encerrou com codigo $LASTEXITCODE."
+    }
+}
+finally {
+    if ($pointer -ne [IntPtr]::Zero) {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+    if ($secureKey) { $secureKey.Dispose() }
+    $key = $null
+    foreach ($name in $environmentNames) {
+        [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")
+    }
+}

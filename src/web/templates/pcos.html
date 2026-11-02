@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Dashboard de modelos para diagnóstico de SOP (PCOS).">
+  <title>Model Lab — SOP (PCOS)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  <script src="{{ url_for('static', path='/js/interpretation.js') }}?v=question-examples-3" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+  <script src="{{ url_for('static', path='/js/pcos.js') }}?v=overview-model-picker-1" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#overview" aria-label="Model Lab PCOS">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 6.5v9L12 20l8-4.5v-9L12 2Zm0 4.1 4.2 2.35L12 10.8 7.8 8.45 12 6.1Zm-5 5.02 3.5 1.96v3.64L7 14.77v-3.65Zm6.5 5.6v-3.64l3.5-1.96v3.65l-3.5 1.95Z"/></svg>
+      </span>
+      <span><strong>Model Lab</strong><small>SOP · biomarcadores</small></span>
+    </a>
+
+    <nav class="dataset-nav" aria-label="Estudos clínicos">
+      <span class="dataset-nav-label">Estudo</span>
+      <a class="dataset-link" href="/">
+        <span class="dataset-icon">◉</span>
+        <span>Câncer de Mama</span>
+      </a>
+      <a class="dataset-link active" href="/pcos">
+        <span class="dataset-icon">◉</span>
+        <span>SOP (PCOS)</span>
+      </a>
+      {% if logistics_enabled %}
+      <a class="dataset-link" href="/rotas">
+        <span class="dataset-icon">⌖</span>
+        <span>Rotas médicas · Fase 2</span>
+      </a>
+      {% endif %}
+    </nav>
+
+    <nav class="nav">
+      <a class="nav-link active" href="#overview"><span class="nav-icon">⌁</span> Visão geral</a>
+      <a class="nav-link" href="#models"><span class="nav-icon">◈</span> Modelos</a>
+      <a class="nav-link" href="#biomarkers"><span class="nav-icon">◎</span> Biomarcadores</a>
+      <a class="nav-link" href="#samples"><span class="nav-icon">▦</span> Amostras</a>
+    </nav>
+
+    <div class="sidebar-note">
+      <span class="status-dot"></span>
+      <div><strong>Dados de avaliação</strong><small>Holdout do notebook 04</small></div>
+    </div>
+    <p class="medical-note">Ferramenta acadêmica de apoio. Não substitui avaliação médica.</p>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-button menu-button" id="menuButton" aria-label="Abrir menu">☰</button>
+      <div>
+        <p class="eyebrow">FIAP · Tech Challenge · SOP</p>
+        <h1>Performance dos modelos</h1>
+      </div>
+      <div class="topbar-actions">
+        <span class="live-pill"><i></i> Contrato v<span id="contractVersion">—</span></span>
+        <button class="icon-button" id="refreshButton" title="Atualizar dados" aria-label="Atualizar dados">↻</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <section class="hero" id="overview">
+        <div class="hero-copy">
+          <span class="section-label">Biomarcadores hormonais</span>
+          <h2>Diagnóstico de SOP com<br><span class="pcos-accent">AMH e beta-HCG.</span></h2>
+          <p>Explore métricas, distribuição dos biomarcadores e comparação entre cinco classificadores no conjunto de teste.</p>
+          <div class="hero-meta">
+            <span><b id="sampleCount">—</b> amostras teste</span>
+            <span><b id="modelCount">—</b> modelos</span>
+            <span><b id="featureCount">—</b> atributos</span>
+          </div>
+        </div>
+        <div class="hero-orbit" aria-hidden="true">
+          <div class="orbit orbit-outer"></div>
+          <div class="orbit orbit-inner"></div>
+          <div class="core"><span>PCOS</span><small>Biomarker<br>insights</small></div>
+        </div>
+      </section>
+
+      <section class="best-model glass-card">
+        <div class="best-heading">
+          <div class="model-emblem">✦</div>
+          <div>
+            <p id="overviewModelTitle">Modelo recomendado</p>
+            <h3 id="bestModel">Carregando…</h3>
+          </div>
+          <div class="overview-model-controls">
+            <label for="overviewModelSelect">Consultar modelo</label>
+            <select id="overviewModelSelect" aria-label="Selecionar modelo para consultar métricas"></select>
+          </div>
+          <span id="overviewModelBadge" class="best-badge">Maior recall PCOS</span>
+        </div>
+        <div class="metric-strip">
+          <article><span>Acurácia</span><strong id="metricAccuracy">—</strong><small>acertos totais</small></article>
+          <article><span>Recall PCOS</span><strong id="metricRecall">—</strong><small>critério principal</small></article>
+          <article><span>F1 PCOS</span><strong id="metricF1">—</strong><small>equilíbrio</small></article>
+          <article><span>Precisão</span><strong id="metricPrecision">—</strong><small>positivos corretos</small></article>
+        </div>
+      </section>
+
+      <section class="glass-card llm-card" aria-labelledby="llmHeading">
+        <div class="card-heading">
+          <div>
+            <h3 id="llmHeading">Interpretação em linguagem natural</h3>
+            <p>Explicação agregada dos experimentos da Fase 2; não analisa pacientes.</p>
+          </div>
+          <button class="clear-button" id="interpretButton" type="button">Gerar interpretação</button>
+        </div>
+        <form id="interpretationQuestionForm" class="interpretation-question-form">
+          <div>
+            <input id="interpretationQuestion" type="text" required maxlength="500" aria-label="Pergunta sobre as métricas do estudo" placeholder="Digite sua pergunta ou escolha um exemplo abaixo">
+            <button id="interpretationQuestionButton" class="clear-button" type="submit">Perguntar à LLM</button>
+          </div>
+          <div class="interpretation-examples" role="group" aria-label="Perguntas de exemplo">
+            <button class="question-badge" type="button" data-question="Qual modelo teve o maior recall após a otimização?">Maior recall</button>
+            <button class="question-badge" type="button" data-question="Em quais modelos o recall caiu após a otimização?">Quedas de recall</button>
+            <button class="question-badge" type="button" data-question="Qual a diferença entre recall e precisão neste estudo?">Recall × precisão</button>
+            <button class="question-badge" type="button" data-question="Compare o F1 da Regressao Logistica antes e depois da otimização.">F1 antes × depois</button>
+          </div>
+          <p>Escolha um exemplo para preencher o campo, edite se desejar e clique em Perguntar à LLM ou pressione Enter.</p>
+          <details class="interpretation-privacy"><summary>Privacidade e uso da LLM</summary><p>Perguntas exigem uma LLM configurada. O texto é enviado ao provedor selecionado; não inclua nomes, sintomas ou dados de pacientes.</p></details>
+        </form>
+        <div id="interpretationOutput" class="llm-output" aria-live="polite">
+          Gere a explicação geral ou pergunte sobre as métricas agregadas. Os resultados da otimização genética precisam estar disponíveis; sem LLM, apenas a explicação geral por regras funciona.
+        </div>
+        <div id="interpretationComparisonSection" hidden>
+        <h4>Dados para conferir a interpretação</h4>
+        <div id="interpretationComparison" class="interpretation-comparison" role="region" aria-label="Comparação baseline e otimizado" tabindex="0">Carregando métricas do experimento…</div>
+        </div>
+      </section>
+
+      <section class="glass-card genetic-card" aria-labelledby="geneticHeading">
+        <div class="card-heading">
+          <div>
+            <h3 id="geneticHeading">Baseline × otimização genética</h3>
+            <p>Comparação dos modelos no mesmo holdout; selecionados por CV no treino.</p>
+          </div>
+        </div>
+        <div id="geneticComparison" class="model-cards" aria-live="polite">
+          Execute a otimização da Fase 2 para carregar a comparação.
+        </div>
+      </section>
+
+      <section id="models">
+        <div class="section-heading">
+          <div><span class="section-label">Análise lado a lado</span><h2>Comparativo dos modelos</h2></div>
+        </div>
+        <div class="analytics-grid">
+          <article class="glass-card chart-card">
+            <div class="card-heading">
+              <div><h3>Métricas por modelo</h3><p>Conjunto de teste</p></div>
+            </div>
+            <div class="chart-wrap"><canvas id="metricsChart"></canvas></div>
+          </article>
+          <article class="glass-card ranking-card">
+            <div class="card-heading">
+              <div><h3>Ranking clínico</h3><p>Ordenado por recall PCOS</p></div>
+            </div>
+            <div id="rankingList" class="ranking-list"></div>
+          </article>
+        </div>
+        <div class="model-cards" id="modelCards"></div>
+
+        <article class="glass-card data-card pcos-model-summary-card">
+          <div class="card-heading">
+            <div>
+              <h3>Resumo consolidado por modelo</h3>
+              <p>Médias de probabilidade e confiança no conjunto de teste completo</p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="pcos-samples-table pcos-model-summary-table">
+              <thead>
+                <tr>
+                  <th>Modelo</th>
+                  <th>C/ SOP %</th>
+                  <th>S/ SOP %</th>
+                  <th>Confiança</th>
+                  <th>Diagnóstico</th>
+                  <th>Recall</th>
+                  <th>F1</th>
+                </tr>
+              </thead>
+              <tbody id="modelSummaryBody">
+                <tr><td colspan="7"><div class="loading-state"><i></i>Carregando…</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section id="biomarkers">
+        <div class="section-heading">
+          <div><span class="section-label">Dados e biomarcadores</span><h2>Distribuição e correlação</h2></div>
+        </div>
+
+        <div class="eda-highlights glass-card" id="edaHighlights"></div>
+
+        <div class="inventory-grid" id="inventoryCards">
+          <article class="glass-card inventory-card"><span>Registros brutos</span><strong id="rawCount">—</strong></article>
+          <article class="glass-card inventory-card"><span>Usados na modelagem</span><strong id="usedCount">—</strong></article>
+          <article class="glass-card inventory-card"><span>Treinamento</span><strong id="trainCount">—</strong></article>
+          <article class="glass-card inventory-card"><span>Avaliação</span><strong id="testCount">—</strong></article>
+        </div>
+
+        <div class="charts-grid">
+          <article class="glass-card chart-card">
+            <div class="card-heading">
+              <div><h3>Sem PCOS × Com PCOS</h3><p>Distribuição por conjunto</p></div>
+              <label class="compact-select">
+                <span>Conjunto</span>
+                <select id="classSplit">
+                  <option value="completo">Completo</option>
+                  <option value="treino">Treino</option>
+                  <option value="teste">Teste</option>
+                </select>
+              </label>
+            </div>
+            <div class="class-chart-layout">
+              <div class="chart-wrap compact-chart"><canvas id="classChart"></canvas></div>
+              <div id="classSummary" class="class-summary"></div>
+            </div>
+          </article>
+
+          <article class="glass-card chart-card">
+            <div class="card-heading">
+              <div><h3>Distribuição por atributo</h3><p>Histograma comparativo</p></div>
+              <div class="chart-controls">
+                <label class="compact-select"><span>Atributo</span><select id="featureSelect"></select></label>
+                <label class="compact-select"><span>Conjunto</span><select id="featureSplit">
+                  <option value="completo">Completo</option>
+                  <option value="treino">Treino</option>
+                  <option value="teste">Teste</option>
+                </select></label>
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="featureChart"></canvas></div>
+          </article>
+        </div>
+
+        <div class="charts-grid lower-charts">
+          <article class="glass-card chart-card">
+            <div class="card-heading">
+              <div><h3>Matriz de confusão</h3><p>Conjunto de avaliação</p></div>
+              <label class="compact-select"><span>Modelo</span><select id="confusionModel"></select></label>
+            </div>
+            <div id="confusionMatrix" class="confusion-matrix"></div>
+          </article>
+
+          <article class="glass-card chart-card importance-card">
+            <div class="card-heading">
+              <div><h3>Importância dos atributos</h3><p id="importanceDescription">Árvore de Decisão</p></div>
+            </div>
+            <div class="chart-wrap importance-chart"><canvas id="importanceChart"></canvas></div>
+          </article>
+        </div>
+
+        <article class="glass-card chart-card correlation-card">
+          <div class="card-heading">
+            <div><h3>Correlação entre atributos e alvo</h3><p>Pearson no conjunto completo</p></div>
+          </div>
+          <div class="heatmap-shell">
+            <div class="heatmap-scroll">
+              <div id="correlationHeatmap" class="correlation-heatmap"></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section id="samples">
+        <div class="section-heading">
+          <div><span class="section-label">Investigação granular</span><h2>Comparação por amostra</h2></div>
+        </div>
+
+        <div class="glass-card data-card">
+          <div class="filters">
+            <label>
+              <span>Diagnóstico real</span>
+              <select id="diagnosisFilter">
+                <option value="">Todos</option>
+                <option value="Com PCOS">Com PCOS</option>
+                <option value="Sem PCOS">Sem PCOS</option>
+              </select>
+            </label>
+            <label>
+              <span>Modelo</span>
+              <select id="modelFilter"><option value="">Todos</option></select>
+            </label>
+            <label>
+              <span>Resultado</span>
+              <select id="resultFilter">
+                <option value="">Todos</option>
+                <option value="true">Acertos</option>
+                <option value="false">Erros</option>
+              </select>
+            </label>
+            <button class="clear-button" id="clearFilters">Limpar filtros</button>
+          </div>
+
+          <div class="table-meta">
+            <p><strong id="filteredCount">—</strong> resultados</p>
+            <label class="page-size-control">
+              <span>Exibir</span>
+              <select id="pageSize">
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="0">Todos</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <thead id="samplesHead"></thead>
+              <tbody id="samplesBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination">
+            <button id="prevPage" aria-label="Anterior">←</button>
+            <span id="pageInfo">—</span>
+            <button id="nextPage" aria-label="Próxima">→</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="modal-backdrop" id="drawerBackdrop"></div>
+  <section class="sample-modal" id="sampleDrawer" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-header">
+      <div><span class="section-label">Detalhe da amostra</span><h2>Amostra <span id="drawerId">—</span></h2></div>
+      <button class="icon-button" id="closeDrawer" aria-label="Fechar">×</button>
+    </div>
+    <div id="drawerContent" class="modal-content"></div>
+  </section>
+
+  <div class="toast" id="toast" role="status"></div>
+</body>
+</html>

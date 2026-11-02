@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Demonstração acadêmica de otimização genética de rotas hospitalares.">
+  <title>Clinical Logistics — Rotas médicas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  <script src="{{ url_for('static', path='/js/interpretation.js') }}?v=question-examples-3" defer></script>
+  <script src="{{ url_for('static', path='/js/routes.js') }}?v=medical-distribution-1" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/rotas" aria-label="Clinical Logistics">
+      <span class="brand-mark">⌖</span>
+      <span><strong>Clinical Logistics</strong><small>Medical route planner</small></span>
+    </a>
+    <nav class="dataset-nav" aria-label="Funcionalidades">
+      <span class="dataset-nav-label">Módulo 1</span>
+      <a class="dataset-link" href="/"><span class="dataset-icon">◉</span><span>Câncer de mama</span></a>
+      <a class="dataset-link" href="/pcos"><span class="dataset-icon">◉</span><span>SOP (PCOS)</span></a>
+      <span class="dataset-nav-label">Módulo 2</span>
+      <a class="dataset-link active" href="/rotas"><span class="dataset-icon">⌖</span><span>Otimização de rotas</span></a>
+    </nav>
+    <div class="sidebar-note">
+      <span class="status-dot"></span>
+      <div><strong>Protótipo acadêmico</strong><small>Verifique a origem de cada dado</small></div>
+    </div>
+    <p class="medical-note">Protótipo acadêmico. Confirmar rotas e prioridades com a coordenação.</p>
+  </aside>
+
+  <main class="main routes-main">
+    <header class="topbar">
+      <button class="icon-button menu-button" id="menuButton" aria-label="Abrir menu">☰</button>
+      <div>
+        <p class="eyebrow">FIAP · Tech Challenge · Fase 2</p>
+        <h1>Distribuição de medicamentos e insumos</h1>
+      </div>
+      <div class="topbar-actions">
+        <span class="live-pill"><i></i> Algoritmo genético</span>
+        <button class="icon-button" id="optimizeButton" title="Otimizar rotas" aria-label="Otimizar rotas">↻</button>
+      </div>
+    </header>
+
+    <div class="content routes-content">
+      <section class="hero routes-hero">
+        <div class="hero-copy">
+          <span class="section-label">Vehicle Routing Problem · VRP</span>
+          <h2>Entregas prioritárias,<br><span>rotas mais eficientes.</span></h2>
+          <p>Busca genética com frota, capacidade, autonomia, cadeia fria e prazos. Comparação com uma estratégia base de priorização.</p>
+          <div class="hero-meta">
+            <span><b id="deliveryCount">—</b> entregas</span>
+            <span><b id="vehicleCount">—</b> veículos</span>
+            <span><b id="routeDistance">—</b> km estimados</span>
+          </div>
+        </div>
+        <div class="hero-orbit" aria-hidden="true">
+          <div class="orbit orbit-outer"></div>
+          <div class="orbit orbit-inner"></div>
+          <div class="core"><span>VRP</span><small>Routes<br>optimizer</small></div>
+          <i class="node node-one"></i><i class="node node-two"></i><i class="node node-three"></i>
+        </div>
+      </section>
+
+      <div class="route-source-control">
+        <label for="scenarioSource">Base geográfica e de demanda</label>
+        <select id="scenarioSource">
+          <option value="hybrid_sp" selected>Distribuição híbrida — medicamentos e insumos (simulada)</option>
+          <option value="olist_sp">Dataset Olist — estado de São Paulo</option>
+          <option value="cnes_sp">CNES — unidades de saúde SP (CSV local)</option>
+          <option value="demo">Demonstração fictícia — capital</option>
+        </select>
+      </div>
+      <div class="synthetic-banner" id="scenarioNotice" role="status">Carregando cenário…</div>
+      <section class="glass-card route-source-card" id="datasetDetails" hidden aria-label="Origem e tratamento dos dados">
+        <h3>Dados do estado de São Paulo</h3>
+        <p id="datasetSummary"></p>
+        <p id="datasetMethod"></p>
+        <details><summary>Arquivos utilizados e identificação da versão</summary><ul id="datasetFiles"></ul></details>
+      </section>
+      <div class="route-seed-control">
+        <label for="routeSeed">Semente desta simulação</label>
+        <input id="routeSeed" type="number" min="0" max="4294967295" step="1" value="42">
+        <small>Use sementes diferentes para comparar execuções do algoritmo; isso não representa operações reais.</small>
+      </div>
+
+      <section class="route-metrics" aria-label="Resumo da otimização">
+        <article class="glass-card inventory-card"><span>Distância base</span><strong id="baselineDistance">—</strong><small>km estimados</small></article>
+        <article class="glass-card inventory-card"><span>Distância otimizada</span><strong id="optimizedDistance">—</strong><small>km estimados</small></article>
+        <article class="glass-card inventory-card"><span>Distância evitada</span><strong id="distanceSaved">—</strong><small id="distanceSavedPercent">comparação estimada</small></article>
+        <article class="glass-card inventory-card"><span>Entregas atendidas</span><strong id="servedCount">—</strong><small id="lateCount">—</small></article>
+        <article class="glass-card inventory-card"><span>Destinos com medicamentos (simulados)</span><strong id="medicineCount">—</strong><small id="medicineCountNote">itens médicos simulados</small></article>
+        <article class="glass-card inventory-card"><span>Destinos com insumos (simulados)</span><strong id="supplyCount">—</strong><small id="supplyCountNote">itens médicos simulados</small></article>
+        <article class="glass-card inventory-card"><span>Categoria Olist saúde/beleza</span><strong id="healthBeautyCount">—</strong><small id="healthBeautyCountNote">categoria ampla · não confirma item médico</small></article>
+      </section>
+
+      <section class="glass-card route-map-card">
+        <div class="card-heading">
+          <div><h3>Mapa esquemático das rotas</h3><p>Projeção local das coordenadas; traçados não seguem as ruas.</p></div>
+          <label class="compact-select">
+            <span>Exibir</span>
+            <select id="routeView">
+              <option value="optimized">Rotas otimizadas</option>
+              <option value="baseline">Estratégia base</option>
+            </select>
+          </label>
+          <label class="compact-select">
+            <span>Veículo</span>
+            <select id="routeVehicleSelect" aria-label="Filtrar mapa por veículo">
+              <option value="all">Todos os veículos</option>
+            </select>
+          </label>
+          <label class="compact-select">
+            <span>Tipo de entrega</span>
+            <select id="routeItemTypeSelect" aria-label="Filtrar mapa por medicamento, insumo ou categoria Olist">
+              <option value="all">Todos os tipos</option>
+              <option value="medicamento">Medicamentos</option>
+              <option value="insumo">Insumos</option>
+              <option value="saude_beleza_nao_confirmado">Olist: saúde/beleza (não confirmado)</option>
+            </select>
+          </label>
+        </div>
+        <div class="route-map-wrap" id="routeMap" role="region" aria-label="Mapa esquemático das rotas de entrega"></div>
+        <div class="route-legend" id="routeLegend"></div>
+        <div class="route-map-details" id="routeMapDetails" aria-live="polite">
+          Selecione uma parada no mapa para consultar os itens e as condições da entrega.
+        </div>
+      </section>
+
+      <section class="route-results-grid">
+        <article class="glass-card route-vehicles-card">
+          <div class="card-heading"><div><h3>Rotas por veículo</h3><p>Sequência, carga, autonomia e horário estimado.</p></div></div>
+          <div class="route-vehicle-list" id="vehicleRoutes"></div>
+        </article>
+        <article class="glass-card route-ga-card">
+          <div class="card-heading"><div><h3>Convergência do algoritmo</h3><p>Menor custo fitness por geração.</p></div></div>
+          <div class="ga-chart-wrap" id="gaChart"></div>
+          <div class="ga-parameters" id="gaParameters"></div>
+        </article>
+      </section>
+
+      <section class="glass-card route-deliveries-card">
+        <div class="card-heading"><div><h3>Manifesto de entregas</h3><p>Consulte itens, quantidades, estoque e prioridade. Na distribuição híbrida, a associação entre inventário e destinos é fictícia.</p></div></div>
+        <div class="table-scroll">
+          <table class="route-deliveries-table">
+            <thead><tr><th>Destino</th><th id="manifestReferenceHeading">Referência geográfica</th><th id="manifestItemsHeading">Medicamentos, insumos e estoque simulado</th><th>Prioridade simulada</th><th>Carga simulada</th><th>Prazo</th><th>Cadeia fria</th><th>Veículo / chegada</th></tr></thead>
+            <tbody id="deliveryRows"><tr><td colspan="8">Carregando…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="glass-card route-assistant-card">
+        <div class="card-heading"><div><h3>Assistente de logística</h3><p>Respostas locais baseadas no plano, com integração opcional a uma LLM.</p></div></div>
+        <p class="route-history-notice" id="routeHistoryNotice" aria-live="polite">Carregando histórico local de simulações…</p>
+        <div class="route-assistant-actions">
+          <button class="clear-button" data-action="instructions">Instruções para motoristas</button>
+          <button class="clear-button" data-action="daily_report">Relatório diário</button>
+          <button class="clear-button" data-action="weekly_report">Relatório semanal</button>
+        </div>
+        <form id="routeQuestionForm" class="route-question-form">
+          <label for="routeQuestion">Pergunte sobre o plano de rotas</label>
+          <div><input id="routeQuestion" type="text" required maxlength="1000" placeholder="Digite sua pergunta ou escolha um exemplo abaixo"><button class="clear-button" type="submit">Perguntar</button></div>
+          <div class="interpretation-examples" role="group" aria-label="Perguntas de exemplo sobre rotas">
+            <button class="question-badge" type="button" data-question="Qual veículo leva os itens refrigerados?">Itens refrigerados</button>
+            <button class="question-badge" type="button" data-question="Qual a distância total e a redução estimada em relação à rota base?">Distância e redução</button>
+            <button class="question-badge" type="button" data-question="Quantas entregas foram atendidas e quantas estão atrasadas no plano otimizado?">Entregas e atrasos</button>
+            <button class="question-badge" type="button" data-question="Quantos veículos são utilizados e qual a carga de cada um?">Veículos e cargas</button>
+          </div>
+          <p class="route-question-help">Escolha um exemplo para preencher o campo, edite se desejar e clique em Perguntar ou pressione Enter.</p>
+        </form>
+        <details class="interpretation-privacy">
+          <summary>Privacidade e uso da LLM</summary>
+          <p>A pergunta e o contexto agregado/simulado do plano serão enviados ao provedor configurado. Não informe nomes, endereços individuais, prontuários ou dados identificáveis de pacientes.</p>
+        </details>
+        <div class="llm-output route-assistant-output" id="assistantOutput" aria-live="polite">
+          O assistente local está disponível sem configuração. Configure uma LLM para respostas generativas.
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {"name": "diagnostics-load-test", "namespace": "tech-challenge"},
+  "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 300,
+    "ttlSecondsAfterFinished": 600,
+    "template": {
+      "metadata": {"labels": {"app": "diagnostics-load-test"}},
+      "spec": {
+        "restartPolicy": "Never",
+        "automountServiceAccountToken": false,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 10001,
+          "runAsGroup": 10001,
+          "seccompProfile": {"type": "RuntimeDefault"}
+        },
+        "containers": [
+          {
+            "name": "load",
+            "image": "localhost/tech-challenge-api:phase2",
+            "imagePullPolicy": "IfNotPresent",
+            "command": ["python", "scripts/load_autoscaling.py"],
+            "args": [
+              "--url", "http://diagnostics-api:8000/api/otimizacao/breast_cancer",
+              "--seconds", "180",
+              "--concurrency", "16"
+            ],
+            "resources": {
+              "requests": {"cpu": "100m", "memory": "64Mi"},
+              "limits": {"cpu": "500m", "memory": "128Mi"}
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {"drop": ["ALL"]}
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+ARG OLLAMA_BASE_IMAGE=docker.io/ollama/ollama:latest
+FROM ${OLLAMA_BASE_IMAGE}
+
+LABEL org.opencontainers.image.title="Tech Challenge local Ollama"
+LABEL org.opencontainers.image.description="Local Ollama runtime for aggregate medical-model interpretation"
+
+EXPOSE 11434

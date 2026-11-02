@@ -1,0 +1,111 @@
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
+class UnifiedLauncherTests(unittest.TestCase):
+    def prepare_project(self, root: Path, expected_environment: dict[str, str]) -> Path:
+        shutil.copyfile(ROOT / "run.ps1", root / "run.ps1")
+        scripts = root / ".venv" / "Scripts"
+        scripts.mkdir(parents=True)
+        shutil.copyfile(sys.executable, scripts / "python.exe")
+        (root / ".venv" / "pyvenv.cfg").write_text(
+            f"home = {sys.base_prefix}\n"
+            "include-system-site-packages = true\n"
+            f"version = {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}\n",
+            encoding="utf-8",
+        )
+        (root / "pre_execucao.ps1").write_text("# mocked pre-execution\n", encoding="utf-8")
+        (root / "src" / "web").mkdir(parents=True)
+        (root / "src" / "web" / "app.py").write_text("# mocked app\n", encoding="utf-8")
+        modules = root / "modules"
+        modules.mkdir()
+        checks = "\n".join(
+            f"assert os.environ.get({name!r}) == {value!r}, {('environment: ' + name)!r}"
+            for name, value in expected_environment.items()
+        )
+        (modules / "uvicorn.py").write_text(
+            "import os, sys\n"
+            + checks
+            + "\nprint('API_WEB_STARTED')\n",
+            encoding="utf-8",
+        )
+        return modules
+
+    def test_single_launcher_configures_provider_and_starts_web(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            modules = self.prepare_project(root, {
+                "LLM_PROVIDER": "openai_compatible",
+                "LLM_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "LLM_MODEL": "gemini-3.1-flash-lite",
+                "LLM_API_KEY": "fake-test-key",
+                "LLM_TIMEOUT_SECONDS": "45",
+                "LLM_REASONING_EFFORT": "minimal",
+                "APP_PROFILE": "full",
+            })
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                port = listener.getsockname()[1]
+            command = (
+                f'$env:PYTHONPATH="{modules}"; '
+                '$env:GEMINI_API_KEY="fake-test-key"; '
+                '$env:LLM_API_KEY="previous-key"; '
+                'function Invoke-RestMethod { param($Uri,$Headers,$TimeoutSec) '
+                'if ($Uri -ne "https://generativelanguage.googleapis.com/v1beta/openai/models") { throw "url" }; '
+                'if ($Headers.Authorization -ne "Bearer fake-test-key") { throw "auth" }; '
+                'return @{data=@(@{id="models/gemini-3.1-flash-lite"})} }; '
+                f'& "{root / "run.ps1"}" -Port {port}; '
+                'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }'
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 '$ErrorActionPreference="Stop"; ' + command],
+                capture_output=True, text=True, timeout=60,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("API_WEB_STARTED", result.stdout)
+        self.assertNotIn("fake-test-key", result.stdout + result.stderr)
+
+    def test_busy_port_fails_before_provider_or_web_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as listener:
+            root = Path(directory)
+            modules = self.prepare_project(root, {})
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 f'$env:PYTHONPATH="{modules}"; $env:GEMINI_API_KEY="not-requested"; '
+                 f'& "{root / "run.ps1"}" -Port {port}'],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ocupada", result.stderr)
+            self.assertNotIn("API_WEB_STARTED", result.stdout)
+            self.assertNotIn("Chave API", result.stdout)
+
+    def test_invalid_provider_options_fail_before_environment_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copyfile(ROOT / "run.ps1", root / "run.ps1")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-File",
+                 str(root / "run.ps1"), "-Provider", "OpenAI", "-QwenRegion", "us-east-1"],
+                capture_output=True, text=True, timeout=30,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("QwenRegion", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

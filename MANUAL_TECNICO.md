@@ -1,0 +1,229 @@
+# Manual técnico — Tech Challenge
+
+Projeto acadêmico FIAP com estudos de classificação clínica, otimização por
+algoritmos genéticos e distribuição simulada de medicamentos e insumos.
+
+> **Uso acadêmico:** os modelos não são dispositivos médicos e não substituem
+> avaliação profissional. As rotas não representam uma operação real.
+
+## 1. Iniciar o projeto
+
+Requisitos: Windows, PowerShell, Git, Python 3 e internet para instalar
+dependências. Clone o repositório e prepare o ambiente na raiz:
+
+```powershell
+git clone https://github.com/rsjtecnologia/tech-challenge-fase1-1.git
+Set-Location .\tech-challenge-fase1-1
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+. .\pre_execucao.ps1
+```
+
+O script cria/ativa `.venv` e instala `requirements.txt`. Os datasets clínicos,
+Olist e o inventário Hospital Supply Chain estão incluídos no repositório;
+resultados e artefatos são gerados localmente e não estão no Git.
+
+### Gerar os resultados
+
+```powershell
+.\run_notebooks.ps1
+```
+
+No menu:
+
+1. `T` executa os pipelines clínicos e gera os exports para os dashboards.
+2. Responda `S` para voltar ao menu e selecione `3`.
+3. Selecione `T` para executar os três experimentos genéticos para ambos os
+   estudos.
+
+Os resultados são salvos em `src\db\outputs`. A otimização pode levar vários
+minutos. Para executar diretamente, use:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.optimization.cli
+```
+
+### Configurar a chave Google Gemini
+
+O avaliador deve utilizar **uma chave própria**. Nenhuma chave acompanha o
+repositório e não é necessário editar `run.ps1`.
+
+1. Acesse o [Google AI Studio](https://aistudio.google.com/apikey) e entre com
+   sua conta Google.
+2. Na área de chaves de API, crie uma chave vinculada a um projeto Google.
+   Se solicitado, selecione ou crie o projeto e aceite os termos aplicáveis.
+3. Confira se a conta/projeto tem acesso ao modelo `gemini-3.1-flash-lite` e
+   cota disponível. Acesso, gratuidade e cobrança dependem do modelo e da conta;
+   consulte os [preços](https://ai.google.dev/gemini-api/docs/pricing) e
+   [limites](https://ai.google.dev/gemini-api/docs/rate-limits).
+4. Copie a chave para informá-la no terminal na próxima etapa. Não a coloque
+   em arquivos Python, notebooks, `run.ps1`, commits ou capturas de tela.
+
+A chave permite gerar explicações das métricas e textos do assistente de rotas.
+Treinamento, classificadores, otimização genética, distâncias e métricas são
+calculados localmente e não precisam dessa chave.
+
+### Iniciar e conferir a aplicação
+
+Depois de gerar os resultados, execute na raiz do projeto:
+
+```powershell
+.\run.ps1
+```
+
+1. O launcher prepara o ambiente e seleciona Gemini por padrão.
+2. Quando aparecer **Chave API de Gemini (entrada oculta; nao sera salva)**,
+   cole sua chave e pressione **Enter**. Os caracteres não serão exibidos.
+3. Aguarde a validação de acesso e a mensagem **API/web iniciando**.
+   A validação consulta os modelos disponíveis; não garante cota para gerar
+   respostas. Se falhar, leia a mensagem antes de tentar novamente.
+4. Mantenha esse terminal aberto e acesse:
+
+- `http://127.0.0.1:8020/` — câncer de mama
+- `http://127.0.0.1:8020/pcos` — SOP/PCOS
+- `http://127.0.0.1:8020/rotas` — distribuição e rotas
+- `http://127.0.0.1:8020/docs` — documentação da API
+
+Nos painéis clínicos, confira as métricas e solicite a interpretação ou envie
+uma pergunta sobre os resultados. Em `/rotas`, aguarde a otimização inicial e
+teste **Instruções para motoristas**, **Relatório diário** ou **Perguntar**.
+Selecionar um exemplo de pergunta apenas preenche o campo: é necessário enviar.
+Essas ações usam a LLM configurada; resultados já disponíveis no cache podem
+ser reutilizados. Iniciar a web não treina os classificadores nem gera seus
+experimentos genéticos.
+
+O script não salva a chave digitada. Se `GEMINI_API_KEY` já estiver definida no
+ambiente do terminal, ela será utilizada sem solicitar outra chave. Para voltar
+à entrada oculta, remova essa variável **do terminal atual** antes de iniciar:
+
+```powershell
+Remove-Item Env:\GEMINI_API_KEY -ErrorAction SilentlyContinue
+.\run.ps1
+```
+
+Encerre com **Ctrl+C**. Ao iniciar novamente, informe a chave se ela não estiver
+no ambiente. Os notebooks interativos usam a API local, portanto não é preciso
+copiar a chave para eles: com a API ativa, abra outro terminal na raiz, execute
+`.\run_notebooks.ps1`, escolha `4` e selecione o notebook desejado.
+
+> **Privacidade:** somente contexto agregado/simulado e a pergunta são enviados
+> ao provedor. Não informe dados pessoais ou clínicos. O uso do conteúdo pelo
+> Google depende dos termos da conta. Se uma chave for exposta, revogue-a no
+> AI Studio e crie outra; apagar o texto de um arquivo não revoga a credencial.
+
+### Problemas comuns
+
+| Sintoma | Procedimento |
+|---|---|
+| PowerShell bloqueia o script | Execute `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` nesse terminal. |
+| Chave ausente, inválida ou sem permissão | Confira a chave e as permissões do projeto no AI Studio; reinicie e informe a chave correta. |
+| Modelo não confirmado / HTTP 404 | Confira o identificador e o acesso na conta. Use `.\run.ps1 -Provider Gemini -Model IDENTIFICADOR_DO_MODELO` com um modelo compatível; não há troca automática. |
+| HTTP 429 | Confira cota, limites e eventual faturamento do projeto. Evite repetir chamadas continuamente. |
+| HTTP 503 do provedor / timeout | Confira rede e disponibilidade do Gemini; tente mais tarde. Para espera maior, use `.\run.ps1 -TimeoutSeconds 120`. |
+| Porta 8020 ocupada | Encerre sua execução anterior com Ctrl+C ou use `.\run.ps1 -Port 8021` e abra a nova URL. Para notebooks, use `.\run_notebooks.ps1 -ApiPort 8021`. |
+| Métricas ou comparação genética ausentes | Execute os pipelines e experimentos descritos em **Gerar os resultados**; iniciar a web não produz esses arquivos. |
+
+### Executar sem chave
+
+Para usar a API sem provedor LLM, execute no terminal com o ambiente preparado
+e sem variáveis `LLM_*` configuradas:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn src.web.app:app --host 127.0.0.1 --port 8020
+```
+
+Na página `/rotas`, selecione **Demonstração fictícia — capital** para testar sem
+datasets extras. Os dados Olist/inventário incluídos também permitem o modo
+híbrido. Sem provedor configurado, resumos gerais e o assistente de rotas usam
+regras locais identificadas como tal, não geração Gemini; perguntas clínicas
+livres exigem LLM. Essa alternativa não demonstra a integração com Gemini.
+
+## 2. O que foi implementado
+
+### Fase 1 — estudos clínicos
+
+Pipelines de notebooks para câncer de mama (Wisconsin) e SOP/PCOS: exploração,
+pré-processamento, treinamento, avaliação e exportação de resultados para os
+dashboards. As páginas exibem dados pré-computados; não recebem pacientes nem
+fazem diagnóstico online.
+
+### Fase 2 — Projeto 1: otimização dos modelos
+
+Um algoritmo genético otimiza separadamente os hiperparâmetros de cinco
+classificadores nos dois estudos. São executadas três configurações genéticas,
+com avaliação por validação cruzada estratificada no treino. O melhor
+experimento é comparado ao baseline em um holdout separado. A função fitness é
+`0,50 × recall + 0,30 × F1 + 0,20 × acurácia`.
+
+A LLM pode explicar métricas agregadas em linguagem natural. Ela não recebe
+registros individuais. A otimização funciona sem chave; a interpretação no
+Gemini requer provedor configurado.
+
+### Fase 2 — Projeto 2: otimização de rotas
+
+Problema VRP com múltiplos veículos. O algoritmo genético representa a ordem
+das entregas como uma permutação, usa seleção por torneio, crossover OX e
+mutação por inversão de segmento. O decoder respeita capacidade, autonomia e
+refrigeração; o fitness considera distância, atrasos ponderados por prioridade
+e entregas não atendidas.
+
+Fontes disponíveis:
+
+- `demo`: cenário fictício, não requer dados adicionais.
+- `olist_sp`: geografia e dados agregados do dataset Olist; não representa
+  hospitais ou demanda médica.
+- `cnes_sp`: estabelecimentos do CSV CNES local.
+- `hybrid_sp`: geografia Olist ou CNES e perfil de inventário Kaggle, com
+  associação, carga e demanda médicas simuladas.
+
+O mapa é SVG local e as distâncias são Haversine em linha reta, não rotas por
+ruas. O assistente Gemini gera instruções e relatórios; não altera o plano.
+
+## 3. Dados opcionais de rotas
+
+O dataset Olist já está em `src\db\models\dataset_rotasBR\`:
+
+```text
+olist_customers_dataset.csv
+olist_geolocation_dataset.csv
+olist_orders_dataset.csv
+olist_order_items_dataset.csv
+olist_products_dataset.csv
+```
+
+O inventário `inventory_data.csv` do Hospital Supply Chain também está em
+`src\db\models\dataset_cnes\hospital_supply_chain\`. O script de download
+permanece disponível para obter uma cópia atualizada. O CSV CNES não está
+incluído: essa fonte é opcional e deve ser obtida pelo avaliador e colocada em
+`src\db\models\dataset_cnes\cnes_estabelecimentos_sp.csv`.
+
+Os dados de demanda, medicamentos, pesos e associação entre inventário e
+destinos podem ser simulados; não os interprete como dados médicos reais.
+
+**Fontes e atribuição:** o dataset Olist foi publicado por Olist no Kaggle sob
+CC BY-NC-SA 4.0; uso não comercial, atribuição e compartilhamento de derivados
+sob a mesma licença. O inventário Hospital Supply Chain, de Van Patangan, tem
+licença MIT. Consulte as páginas de origem para os termos completos:
+[Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) e
+[Hospital Supply Chain](https://www.kaggle.com/datasets/vanpatangan/hospital-supply-chain).
+
+## 4. Estrutura e artefatos
+
+- `notebooks\` — pipelines clínicos e notebook interativo de rotas.
+- `src\optimization\` — experimentos genéticos e interpretação de métricas.
+- `src\logistics\` — cenários, VRP, loaders, serviço e API de rotas.
+- `src\web\` — FastAPI, páginas e arquivos estáticos.
+- `src\db\models\` — datasets de entrada.
+- `src\db\outputs\` — resultados gerados localmente, ignorados pelo Git.
+
+Planos e históricos de rotas também são armazenados localmente em
+`src\db\outputs\phase2-logistics\`, separados por fonte.
+
+## 5. Limitações
+
+- Os datasets e resultados não validam uso clínico nem generalização externa.
+- Os dashboards clínicos exibem resultados pré-computados.
+- As rotas, demandas, prioridades e cargas podem ser simuladas; distâncias não
+  consideram ruas, trânsito ou horários reais.
+- Não envie dados pessoais ou clínicos ao Gemini ou a outro provedor.
+- Kubernetes/HPA é opcional; a execução local não possui escalabilidade
+  automática.
