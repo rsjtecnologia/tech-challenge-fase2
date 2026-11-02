@@ -176,7 +176,9 @@ class CloudTransportTests(unittest.TestCase):
     def test_service_unavailable_is_actionable_and_does_not_expose_response(self) -> None:
         with patch.dict(os.environ, {
             "LLM_MODEL": "test", "LLM_API_KEY": "private-test-key",
-        }, clear=True), patch("src.optimization.llm.urlopen") as provider:
+        }, clear=True), patch("src.optimization.llm.time.sleep"), patch(
+            "src.optimization.llm.urlopen"
+        ) as provider:
             provider.side_effect = HTTPError(
                 "https://api.openai.com/v1/chat/completions", 503,
                 "Service Unavailable", {}, BytesIO(b"private-test-key"),
@@ -187,6 +189,96 @@ class CloudTransportTests(unittest.TestCase):
                 request_chat_completion("system", "aggregate metrics only")
             self.assertIn("tente novamente", str(error.exception))
             self.assertNotIn("private-test-key", str(error.exception))
+            self.assertEqual(provider.call_count, 3)
+
+    def test_remote_503_recovers_with_bounded_backoff(self) -> None:
+        with patch.dict(os.environ, {
+            "LLM_MODEL": "test", "LLM_API_KEY": "private-test-key",
+        }, clear=True), patch("src.optimization.llm.urlopen") as provider, patch(
+            "src.optimization.llm.time.sleep"
+        ) as sleep, patch(
+            "src.optimization.llm.random.uniform", return_value=0.1
+        ), self.assertLogs("src.optimization.llm", level="WARNING") as logs:
+            errors = [
+                HTTPError("https://api.openai.com/v1/chat/completions", 503,
+                          "Service Unavailable", {}, BytesIO(b"private-test-key"))
+                for _ in range(2)
+            ]
+            response = provider.return_value
+            response.__enter__.return_value.read.return_value = (
+                b'{"choices":[{"message":{"content":"recovered"}}]}'
+            )
+            provider.side_effect = [*errors, response]
+            self.assertEqual(request_chat_completion("system", "user"), "recovered")
+            self.assertEqual(provider.call_count, 3)
+            self.assertEqual([call.args[0] for call in sleep.call_args_list], [1.1, 2.1])
+            self.assertTrue(all(error.fp.closed for error in errors))
+            self.assertNotIn("private-test-key", "\n".join(logs.output))
+
+    def test_remote_503_does_not_retry_beyond_timeout_budget(self) -> None:
+        with patch.dict(os.environ, {
+            "LLM_MODEL": "test", "LLM_API_KEY": "private-test-key",
+            "LLM_TIMEOUT_SECONDS": "1",
+        }, clear=True), patch(
+            "src.optimization.llm.urlopen",
+            side_effect=HTTPError("https://api.openai.com/v1/chat/completions", 503,
+                                  "Service Unavailable", {}, BytesIO()),
+        ) as provider, patch("src.optimization.llm.time.sleep") as sleep:
+            with self.assertRaisesRegex(LLMProviderError, "503"):
+                request_chat_completion("system", "user")
+            provider.assert_called_once()
+            sleep.assert_not_called()
+
+    def test_remote_retry_uses_only_remaining_timeout(self) -> None:
+        for elapsed_after_sleep in (3, 10):
+            with self.subTest(elapsed=elapsed_after_sleep), patch.dict(os.environ, {
+                "LLM_MODEL": "test", "LLM_API_KEY": "private-test-key",
+                "LLM_TIMEOUT_SECONDS": "10",
+            }, clear=True), patch("src.optimization.llm.urlopen") as provider, patch(
+                "src.optimization.llm.time.sleep"
+            ), patch(
+                "src.optimization.llm.random.uniform", return_value=0
+            ), patch(
+                "src.optimization.llm.time.monotonic",
+                side_effect=[0, 0, 2, elapsed_after_sleep],
+            ):
+                response = provider.return_value
+                response.__enter__.return_value.read.return_value = (
+                    b'{"choices":[{"message":{"content":"recovered"}}]}'
+                )
+                provider.side_effect = [
+                    HTTPError("https://api.openai.com/v1/chat/completions", 503,
+                              "Service Unavailable", {}, BytesIO()),
+                    response,
+                ]
+                if elapsed_after_sleep == 10:
+                    with self.assertRaisesRegex(LLMProviderError, "503"):
+                        request_chat_completion("system", "user")
+                    provider.assert_called_once()
+                else:
+                    self.assertEqual(request_chat_completion("system", "user"), "recovered")
+                    self.assertEqual(
+                        [call.kwargs["timeout"] for call in provider.call_args_list],
+                        [10, 7],
+                    )
+
+    def test_non_transient_errors_and_local_503_are_not_retried(self) -> None:
+        for provider_name, code in (
+            ("openai_compatible", 400), ("openai_compatible", 401),
+            ("openai_compatible", 403), ("openai_compatible", 404),
+            ("openai_compatible", 429), ("ollama", 503),
+        ):
+            with self.subTest(provider=provider_name, code=code), patch.dict(os.environ, {
+                "LLM_PROVIDER": provider_name, "LLM_MODEL": "test",
+                "LLM_API_KEY": "private-test-key",
+            }, clear=True), patch(
+                "src.optimization.llm.urlopen",
+                side_effect=HTTPError("http://localhost", code, "Error", {}, BytesIO()),
+            ) as provider, patch("src.optimization.llm.time.sleep") as sleep:
+                with self.assertRaisesRegex(LLMProviderError, str(code)):
+                    request_chat_completion("system", "user")
+                provider.assert_called_once()
+                sleep.assert_not_called()
 
     def test_gemini_model_not_found_is_actionable_and_does_not_expose_response(self) -> None:
         with patch.dict(os.environ, {

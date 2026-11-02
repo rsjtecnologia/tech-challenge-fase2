@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import random
 import re
 import time
 from typing import Any
@@ -323,6 +324,33 @@ def validate_configuration() -> bool:
     return True
 
 
+def _read_completion_response(request: Request, timeout: int, *, ollama: bool) -> str:
+    """Retry remote 503 responses within the original time budget."""
+    started = time.monotonic()
+    remaining = float(timeout)
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=remaining) as response:
+                return response.read().decode("utf-8")
+        except HTTPError as error:
+            if ollama or error.code != 503 or attempt == 2:
+                raise
+            delay = 2 ** attempt + random.uniform(0, 0.25)
+            remaining = timeout - (time.monotonic() - started) - delay
+            if remaining <= 0:
+                raise
+            error.close()
+            LOGGER.warning(
+                "llm_retry http_status=503 next_attempt=%s delay_seconds=%.2f",
+                attempt + 2, delay,
+            )
+            time.sleep(delay)
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise
+    raise AssertionError("Completion retry loop exhausted without a result.")
+
+
 def request_chat_completion(
     system_prompt: str,
     user_prompt: str,
@@ -402,8 +430,7 @@ def request_chat_completion(
     )
     started = time.monotonic()
     try:
-        with urlopen(request, timeout=timeout) as response:
-            response_body = response.read().decode("utf-8")
+        response_body = _read_completion_response(request, timeout, ollama=ollama)
     except HTTPError as error:
         guidance = {
             401: "Confira a chave API do provedor.",

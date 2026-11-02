@@ -152,7 +152,8 @@ copiar a chave para eles: com a API ativa, abra outro terminal na raiz, execute
 | Chave ausente, inválida ou sem permissão | Confira a chave e as permissões do projeto no AI Studio; reinicie e informe a chave correta. |
 | Modelo não confirmado / HTTP 404 | Confira o identificador e o acesso na conta. Use `.\run.ps1 -Provider Gemini -Model IDENTIFICADOR_DO_MODELO` com um modelo compatível; não há troca automática. |
 | HTTP 429 | Confira cota, limites e eventual faturamento do projeto. Evite repetir chamadas continuamente. |
-| HTTP 503 do provedor / timeout | Confira rede e disponibilidade do Gemini; tente mais tarde. Para espera maior, use `.\run.ps1 -TimeoutSeconds 120`. |
+| HTTP 503 do provedor | A aplicação faz até 3 tentativas no mesmo modelo, com espera progressiva e pequena variação aleatória, dentro do tempo configurado. Se persistir, confira a disponibilidade do Gemini e tente mais tarde; não há troca automática de modelo. A validação inicial de `/models` não garante disponibilidade para gerar respostas. |
+| Timeout | Confira rede e disponibilidade do provedor. Para espera maior, use `.\run.ps1 -TimeoutSeconds 120`; aumentar o tempo não corrige indisponibilidade HTTP 503. |
 | Porta 8020 ocupada | Encerre sua execução anterior com Ctrl+C ou use `.\run.ps1 -Port 8021` e abra a nova URL. Para notebooks, use `.\run_notebooks.ps1 -ApiPort 8021`. |
 | Métricas ou comparação genética ausentes | Execute os pipelines e experimentos descritos em **Gerar os resultados**; iniciar a web não produz esses arquivos. |
 
