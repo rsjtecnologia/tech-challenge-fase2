@@ -17,6 +17,44 @@ from src.web.app import app
 
 
 class CloudTransportTests(unittest.TestCase):
+    def test_closed_gemini_error_body_preserves_original_http_failure(self) -> None:
+        body = BytesIO(b'{"error":{"status":"UNAVAILABLE"}}')
+        body.close()
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "openai_compatible",
+            "LLM_MODEL": "gemini-3.1-flash-lite",
+            "LLM_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+            "LLM_API_KEY": "secret-test-key",
+        }, clear=True), patch(
+            "src.optimization.llm._read_completion_response",
+            side_effect=HTTPError("https://generativelanguage.googleapis.com", 503, "", {}, body),
+        ), self.assertRaisesRegex(LLMProviderError, "HTTP 503"):
+            request_chat_completion("system", "synthetic probe")
+
+    def test_gemini_error_exposes_only_documented_status_not_provider_body(self) -> None:
+        for body, expected in (
+            ({"error": {"status": "RESOURCE_EXHAUSTED", "message": "secret-test-key"}}, True),
+            ({"error": {"status": "secret-test-key", "message": "secret-test-key"}}, False),
+            ({"error": "secret-test-key"}, False),
+            (["secret-test-key"], False),
+        ):
+            with self.subTest(body=body), patch.dict(os.environ, {
+                "LLM_PROVIDER": "openai_compatible",
+                "LLM_MODEL": "gemini-3.1-flash-lite",
+                "LLM_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "LLM_API_KEY": "secret-test-key",
+            }, clear=True), patch(
+                "src.optimization.llm.urlopen",
+                side_effect=HTTPError(
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                    429, "Too many requests", {}, BytesIO(json.dumps(body).encode()),
+                ),
+            ):
+                with self.assertRaises(LLMProviderError) as error:
+                    request_chat_completion("system", "synthetic probe")
+                self.assertEqual("RESOURCE_EXHAUSTED" in str(error.exception), expected)
+                self.assertNotIn("secret-test-key", str(error.exception))
+
     def test_both_module_apis_use_qwen_and_reuse_validated_cache(self) -> None:
         self.assert_module_cloud_cache(
             "https://ap-southeast-1.maas.qwencloudapi.com/compatible-mode/v1",

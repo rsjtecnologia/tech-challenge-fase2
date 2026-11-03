@@ -246,6 +246,8 @@ padrão Python, sem depender de um SDK Google.
 O perfil completo inclui a API e a página de logística. O perfil de diagnóstico
 mantém os painéis clínicos e a otimização, sem registrar as rotas logísticas.
 Os arquivos exigidos por `/readyz` variam entre esses perfis.
+Ambos exigem os contratos de gráficos e os Parquet dos dois dashboards;
+o perfil `full` também exige o plano logístico demo.
 
 ## 3. Fase 1 — pipelines clínicos e contratos web
 
@@ -400,6 +402,17 @@ o texto da LLM não pode recriar arbitrariamente as paradas do plano.
 
 ### Cache e falhas
 
+Para reduzir a latência, a interpretação clínica solicita até 80 palavras
+(60 nas perguntas), sem repetir toda a tabela já exibida. Os limites de saída
+são 280 tokens para interpretação geral e 240 para perguntas. Na logística,
+o texto é limitado a 50 palavras, com 240 tokens para perguntas/instruções e
+280 para relatórios. Métricas e paradas verificadas continuam anexadas pelo
+sistema. `LLM_NUM_PREDICT`, quando definido diretamente no ambiente do servidor,
+sobrescreve esses orçamentos; um limite muito baixo pode truncar o JSON.
+O launcher Gemini já usa raciocínio `minimal`. Esses limites reduzem o
+trabalho de geração, mas não garantem tempo de resposta de um provedor externo.
+Não aumentam o timeout e não convertem timeout em resposta local.
+
 [cache.py](./src/optimization/cache.py) mantém cache em memória por processo:
 64 entradas por padrão, TTL de 3.600 segundos, remoção LRU e locks para
 agrupar chamadas concorrentes de mesma chave. A chave SHA-256 considera
@@ -544,6 +557,14 @@ de perguntas apenas preenchem o campo; o envio depende do botão ou Enter.
 
 ### Launcher
 
+O parâmetro `-CheckLLMOnly` executa apenas o teste sintético da integração
+selecionada, sem exigir arquivos gerados, sem abrir navegador nem iniciar
+Uvicorn. A verificação de porta ocupada é dispensada nesse modo; as variáveis
+de ambiente ainda são restauradas ao encerrar. A mensagem de diagnóstico
+exibe modelo, host, timeout e duração da falha, sem imprimir a chave.
+Erros Gemini podem incluir um identificador de status de uma lista permitida;
+o corpo e a mensagem arbitrária do provedor não são expostos.
+
 [run.ps1](./run.ps1) valida opções/porta, prepara `.venv`, configura provedor,
 executa preflight e inicia Uvicorn em `127.0.0.1`, porta 8020, com `--reload`.
 É um launcher local de desenvolvimento/demonstração, não uma implantação de
@@ -679,7 +700,16 @@ logística, fontes, distribuição, contratos API, cache, transporte LLM,
 notebooks, interfaces e launchers. Há testes de PowerShell que dependem do
 Windows e testes HTTP com servidor local simulado.
 
-Exemplo de validação direcionada, após preparar o ambiente:
+Após preparar o ambiente, instale as dependências de desenvolvimento:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r .\requirements-dev.txt
+```
+
+[requirements-dev.txt](./requirements-dev.txt) inclui as dependências da
+aplicação e o cliente HTTP usado pelo `fastapi.testclient`.
+
+Exemplo de validação direcionada:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p test_startup_preflight.py
@@ -692,10 +722,8 @@ Para a suíte completa:
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-Testes que usam `fastapi.testclient` também dependem do cliente HTTP opcional
-compatível com a versão instalada do framework; a lista principal de
-dependências não fixa um ambiente de testes completo. Uma falha de importação
-deve ser resolvida no ambiente antes de interpretar o resultado da suíte.
+As dependências têm faixas de versão, não um lockfile; preserve o registro
+das versões usadas ao comparar execuções em ambientes diferentes.
 
 Mocks/servidores simulados não validam a conta Gemini real. Para isso, observe
 o resultado da geração do preflight e faça uma consulta no painel.

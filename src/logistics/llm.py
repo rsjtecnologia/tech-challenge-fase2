@@ -30,18 +30,18 @@ ACTION_PROMPTS = {
         "Resuma o plano e dê duas verificações. Paradas serão anexadas pelo sistema, "
         "não as copie. JSON com summary (string), "
         "operational_checks (lista de strings) e disclaimer (string). "
-        "Máximo 70 palavras."
+        "Máximo 50 palavras."
     ),
     "daily_report": (
         "Relatório desta simulação, não de entregas realizadas. Compare base/GA "
         "e sugira melhoria. Métricas serão anexadas; não as copie. "
-        "Máximo 70 palavras. JSON com period, summary, "
+        "Máximo 50 palavras. JSON com period, summary, "
         "improvements (lista), caveats (lista) e disclaimer (string)."
     ),
     "weekly_report": (
         "Relatório de simulações nos últimos sete dias, não operações reais. "
         "Sem trend_available, não declare tendência. Sugira medição/validação. "
-        "Métricas serão anexadas; não as copie. Máximo 70 palavras. JSON com period, "
+        "Métricas serão anexadas; não as copie. Máximo 50 palavras. JSON com period, "
         "summary, improvements (lista), caveats (lista) e "
         "disclaimer (string)."
     ),
@@ -50,7 +50,7 @@ ACTION_PROMPTS = {
         "Não suponha dados em falta; se a pergunta exigir trânsito ou outra fonte "
         "não incluída, informe essa limitação. Responda JSON com answer (string), "
         "supporting_facts (lista de strings), missing_information (lista de "
-        "strings) e disclaimer (string). Máximo 70 palavras."
+        "strings) e disclaimer (string). Máximo 50 palavras."
     ),
 }
 
@@ -661,7 +661,7 @@ def _generate_route_content(
             ),
             temperature=0.2,
             json_mode=True,
-            max_tokens=280 if action in ("question", "instructions") else 360,
+            max_tokens=240 if action in ("question", "instructions") else 280,
             response_schema={
                 "type": "object",
                 "properties": {

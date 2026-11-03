@@ -190,8 +190,34 @@ Invoke-RestMethod http://127.0.0.1:8020/healthz
 Invoke-RestMethod http://127.0.0.1:8020/readyz
 ```
 
+Para testar **somente o provedor**, sem abrir navegador, sem depender de
+artefatos e sem iniciar outro servidor (funciona com a porta já ocupada):
+
+```powershell
+.\run.ps1 -Provider Gemini -CheckLLMOnly
+```
+
+O teste usa uma mensagem sintética e a chave na entrada oculta; pode consumir
+cota. Exibe modelo, host, timeout e tempo até a falha. Para outro modelo, inclua
+`-Model IDENTIFICADOR_DO_MODELO`. Compartilhe apenas o diagnóstico, nunca a chave.
+Quando disponível, o erro inclui um status Gemini validado, como
+`RESOURCE_EXHAUSTED` (cota) ou `UNAVAILABLE` (indisponibilidade).
+
 `/healthz` verifica vida do processo; `/readyz` verifica a existência dos
-arquivos exigidos pelo perfil, não a validade integral dos dados nem o Gemini.
+arquivos exigidos pelo perfil, incluindo gráficos e tabelas dos dois dashboards.
+Não verifica a validade integral dos dados nem o Gemini.
+
+### Testes da aplicação
+
+Para preparar as dependências de desenvolvimento e executar a suíte:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r .\requirements-dev.txt
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+Os testes de integração LLM usam mocks ou servidor local; não comprovam que
+uma conta Gemini real tenha acesso, cota ou disponibilidade.
 
 ### 7. Alternativas opcionais
 

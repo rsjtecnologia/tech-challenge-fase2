@@ -71,7 +71,7 @@ class RouteInferenceTests(unittest.TestCase):
         self.assertTrue(result["verified_plan_fields"])
         self.assertNotIn("vehicle_instructions", provider.call_args.kwargs["response_schema"]["properties"])
         self.assertTrue(provider.call_args.kwargs["json_mode"])
-        self.assertLessEqual(provider.call_args.kwargs["max_tokens"], 280)
+        self.assertEqual(provider.call_args.kwargs["max_tokens"], 240)
 
     def test_report_metrics_are_exact_and_results_are_cached(self) -> None:
         response = {
@@ -88,6 +88,7 @@ class RouteInferenceTests(unittest.TestCase):
             self.assertFalse(first["cache"]["hit"])
             self.assertTrue(second["cache"]["hit"])
             provider.assert_called_once()
+            self.assertEqual(provider.call_args.kwargs["max_tokens"], 280)
             self.assertEqual(
                 second["content"]["key_metrics"]["distancia_otimizada_km"],
                 self.plan["comparison"]["optimized"]["total_distance_km"],
@@ -124,6 +125,31 @@ class RouteInferenceTests(unittest.TestCase):
 
 
 class SharedProviderBudgetTests(unittest.TestCase):
+    def test_clinical_prompts_request_short_answers_with_smaller_token_budgets(self) -> None:
+        metrics = dict(recall=0.8, precision=0.9, f1=0.85, accuracy=0.9)
+        context = {
+            "study": "PCOS", "positive_class": "PCOS", "test_samples": 20,
+            "models": {"Modelo": {
+                "baseline_test_metrics": metrics, "optimized_test_metrics": metrics,
+            }},
+        }
+        response = {
+            "summary": "O recall do modelo exige validação.",
+            "findings": ["Valide as métricas em dados independentes."],
+            "limitations": ["Holdout único."],
+            "disclaimer": "Não substitui avaliação clínica.",
+        }
+        for question, budget in ((None, 280), ("Compare recall e precisão.", 240)):
+            with self.subTest(question=question), patch(
+                "src.optimization.llm.request_chat_completion",
+                return_value=json.dumps(response),
+            ) as provider:
+                result = generate_interpretation(context, question=question)
+                self.assertEqual(provider.call_args.kwargs["max_tokens"], budget)
+                self.assertTrue(result["quality_evaluation"]["passed"])
+                self.assertIn("recall", provider.call_args.args[1])
+                self.assertIn("precision", provider.call_args.args[1])
+
     def test_badge_summary_uses_verified_metrics_not_llm_arithmetic(self) -> None:
         metrics = {"recall": 0.5833, "precision": 0.9, "f1": 0.7, "accuracy": 0.8}
         context = {

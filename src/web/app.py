@@ -98,17 +98,16 @@ def readiness() -> JSONResponse:
             / "phase2-logistics"
             / "latest_route_plan.json",
         )
-    else:
-        output_dir = REPOSITORY_ROOT / "src" / "db" / "outputs"
-        for study, export, charts in (
-            ("breast-cancer-wisconsin-data", "08-export-web", "graficos.json"),
-            ("polycystic-ovary-syndrome-pcos", "05-export-web", "graficos_web.json"),
-        ):
-            required_files += (
-                output_dir / study / export / "metrics" / charts,
-                output_dir / study / export / "artifacts" / "amostras_comparativo.parquet",
-                output_dir / study / export / "artifacts" / "predicoes_longas.parquet",
-            )
+    output_dir = REPOSITORY_ROOT / "src" / "db" / "outputs"
+    for study, export, charts in (
+        ("breast-cancer-wisconsin-data", "08-export-web", "graficos.json"),
+        ("polycystic-ovary-syndrome-pcos", "05-export-web", "graficos_web.json"),
+    ):
+        required_files += (
+            output_dir / study / export / "metrics" / charts,
+            output_dir / study / export / "artifacts" / "amostras_comparativo.parquet",
+            output_dir / study / export / "artifacts" / "predicoes_longas.parquet",
+        )
     missing = [str(path) for path in required_files if not path.is_file()]
     if missing:
         return JSONResponse(

@@ -97,6 +97,35 @@ class UnifiedOllamaLauncherTests(unittest.TestCase):
         self.assertIn("OLLAMA_PREPARATION_FAILED", result.stderr)
         self.assertNotIn("OLLAMA_WEB_STARTED", result.stdout)
 
+    def test_isolated_check_does_not_prepare_ollama_or_start_web(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            modules = self.prepare_project(root)
+            (root / "scripts" / "start_ollama.ps1").write_text(
+                'throw "OLLAMA_MUST_NOT_START"\n', encoding="utf-8",
+            )
+            (modules / "src" / "web" / "preflight.py").write_text(
+                "import os, sys\n"
+                "assert '--llm-only' in sys.argv\n"
+                "assert os.environ['LLM_PROVIDER'] == 'ollama'\n"
+                "assert os.environ['LLM_MODEL'] == 'custom-model'\n"
+                "assert os.environ['LLM_BASE_URL'] == 'http://localhost:11434'\n"
+                "assert not os.environ.get('LLM_REASONING_EFFORT')\n"
+                "print('OLLAMA_ISOLATED_CHECKED')\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 '$ErrorActionPreference="Stop"; '
+                 f'$env:PYTHONPATH="{modules}"; $env:LLM_REASONING_EFFORT="minimal"; '
+                 f'& "{root / "run.ps1"}" -Provider Ollama -Model custom-model -CheckLLMOnly'],
+                capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OLLAMA_ISOLATED_CHECKED", result.stdout)
+        self.assertNotIn("OLLAMA_WEB_STARTED", result.stdout)
+        self.assertNotIn("OLLAMA_MUST_NOT_START", result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

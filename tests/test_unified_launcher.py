@@ -38,6 +38,8 @@ class UnifiedLauncherTests(unittest.TestCase):
             "from pathlib import Path\n"
             "import sys\n"
             "print('PREFLIGHT_CHECKED', flush=True)\n"
+            "if '--llm-only' in sys.argv:\n"
+            "    print('ISOLATED_LLM_CHECK', flush=True)\n"
             "if Path('preflight_failure').exists():\n"
             "    print('Arquivo ausente: missing.json', file=sys.stderr)\n"
             "    sys.exit(1)\n"
@@ -157,6 +159,55 @@ class UnifiedLauncherTests(unittest.TestCase):
             self.assertIn("ocupada", result.stderr)
             self.assertNotIn("API_WEB_STARTED", result.stdout)
             self.assertNotIn("Chave API", result.stdout)
+
+    def test_isolated_check_works_with_busy_port_and_does_not_start_services(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, socket.socket() as listener:
+            root = Path(directory)
+            modules = self.prepare_project(root, {})
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            command = (
+                f'$env:PYTHONPATH="{modules}"; $env:GEMINI_API_KEY="fake-test-key"; '
+                '$env:LLM_API_KEY="previous-key"; '
+                'function Start-Process { throw "BROWSER_MUST_NOT_START" }; '
+                f'& "{root / "run.ps1"}" -Port {port} -CheckLLMOnly; '
+                'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }'
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 '$ErrorActionPreference="Stop"; ' + command],
+                capture_output=True, text=True, timeout=60,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ISOLATED_LLM_CHECK", result.stdout)
+        self.assertNotIn("API_WEB_STARTED", result.stdout)
+        self.assertNotIn("BROWSER_MUST_NOT_START", result.stdout + result.stderr)
+        self.assertNotIn("fake-test-key", result.stdout + result.stderr)
+
+    def test_isolated_check_fails_explicitly_without_launching_web(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            modules = self.prepare_project(root, {})
+            (root / "preflight_provider_failure").touch()
+            command = (
+                f'$env:PYTHONPATH="{modules}"; $env:GEMINI_API_KEY="fake-test-key"; '
+                '$env:LLM_API_KEY="previous-key"; '
+                'function Start-Process { throw "BROWSER_MUST_NOT_START" }; '
+                f'try {{ & "{root / "run.ps1"}" -CheckLLMOnly }} '
+                'catch { Write-Host $_.Exception.Message; '
+                'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }; exit 7 }'
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 '$ErrorActionPreference="Stop"; ' + command],
+                capture_output=True, text=True, timeout=60,
+            )
+        self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+        self.assertIn("HTTP 503", result.stdout)
+        self.assertNotIn("API_WEB_STARTED", result.stdout)
+        self.assertNotIn("Teste isolado concluido", result.stdout)
+        self.assertNotIn("BROWSER_MUST_NOT_START", result.stdout + result.stderr)
 
     def test_invalid_provider_options_fail_before_environment_setup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,6 +1,8 @@
 param(
     [switch]$NoBrowser,
 
+    [switch]$CheckLLMOnly,
+
     [ValidateSet("Gemini", "OpenAI", "Groq", "Qwen", "Ollama")]
     [string]$Provider = "Gemini",
 
@@ -34,7 +36,7 @@ if (-not (Test-Path -LiteralPath $preExecution -PathType Leaf)) {
 }
 
 $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
-if (@($listeners | Where-Object { $_.Port -eq $Port }).Count -gt 0) {
+if (-not $CheckLLMOnly -and @($listeners | Where-Object { $_.Port -eq $Port }).Count -gt 0) {
     throw "A porta $Port da aplicacao esta ocupada. Encerre a execucao anterior com Ctrl+C ou escolha outra porta, por exemplo .\run.ps1 -Port $($Port % 65535 + 1). Nenhum processo foi encerrado."
 }
 
@@ -72,8 +74,19 @@ try {
         if (-not (Test-Path -LiteralPath $ollamaScript -PathType Leaf)) {
             throw "Preparador do Ollama nao encontrado: $ollamaScript"
         }
-        Write-Host "Preparando Podman/Ollama local..." -ForegroundColor Cyan
-        & $ollamaScript -Model $Model
+        if ($CheckLLMOnly) {
+            $env:LLM_PROVIDER = "ollama"
+            $env:LLM_BASE_URL = "http://localhost:11434"
+            $env:LLM_MODEL = $Model
+            $env:LLM_API_KEY = $null
+            $env:LLM_NUM_PREDICT = $null
+            $env:LLM_ENABLE_THINKING = $null
+            $env:LLM_REASONING_EFFORT = $null
+        }
+        else {
+            Write-Host "Preparando Podman/Ollama local..." -ForegroundColor Cyan
+            & $ollamaScript -Model $Model
+        }
         if ($env:LLM_PROVIDER -ne "ollama" -or $env:LLM_MODEL -ne $Model) {
             throw "Ollama nao concluiu a configuracao. A aplicacao nao sera iniciada."
         }
@@ -140,18 +153,28 @@ try {
         $env:APP_PROFILE = "full"
     }
 
-    Write-Host "Verificando dados locais e geracao do provedor..." -ForegroundColor Cyan
+    Write-Host "Verificando geracao do provedor..." -ForegroundColor Cyan
     $previousErrorPreference = $ErrorActionPreference
     try {
         # Capture native stderr without PowerShell replacing it with NativeCommandError.
         $ErrorActionPreference = "Continue"
-        $preflightOutput = & $venvPython -m src.web.preflight 2>&1
+        $preflightArguments = @("-m", "src.web.preflight")
+        if ($CheckLLMOnly) { $preflightArguments += "--llm-only" }
+        $preflightOutput = & $venvPython @preflightArguments 2>&1
         $preflightExitCode = $LASTEXITCODE
     }
     finally {
         $ErrorActionPreference = $previousErrorPreference
     }
     $preflightDetails = ($preflightOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine
+    if ($CheckLLMOnly) {
+        if ($preflightExitCode -ne 0) {
+            throw "Teste isolado LLM falhou (codigo $preflightExitCode).`n$preflightDetails"
+        }
+        Write-Host $preflightDetails
+        Write-Host "Teste isolado concluido. Nenhum servidor foi iniciado."
+        return
+    }
     if ($preflightExitCode -eq 2) {
         Write-Warning "$preflightDetails`nAPI/web iniciara com LLM nao validada. Consultas ao provedor podem falhar; nao houve troca de modelo nem simulacao de resposta."
     }

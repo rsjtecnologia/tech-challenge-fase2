@@ -14,6 +14,22 @@ from src.web.preflight import main
 
 
 class StartupPreflightTests(unittest.TestCase):
+    def test_isolated_llm_test_skips_artifacts_and_never_prints_key(self) -> None:
+        with patch("src.web.preflight.readiness") as readiness, patch(
+            "src.web.preflight._settings",
+            return_value=(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "gemini-3.1-flash-lite", "secret-test-key", 45,
+            ),
+        ), patch(
+            "src.web.preflight.request_chat_completion", return_value='{"ok":true}'
+        ), redirect_stdout(StringIO()) as output:
+            self.assertEqual(main(llm_only=True), 0)
+            readiness.assert_not_called()
+            self.assertIn("Modelo: gemini-3.1-flash-lite", output.getvalue())
+            self.assertIn("timeout: 45s", output.getvalue())
+            self.assertNotIn("secret-test-key", output.getvalue())
+
     def test_preflight_uses_http_transport_and_handles_provider_outages(self) -> None:
         for statuses, expected in (([503, 200], 0), ([503, 503, 503], 2), ([401], 2)):
             with self.subTest(statuses=statuses):

@@ -443,6 +443,27 @@ def request_chat_completion(
                 "o status e os limites do provedor ou selecione outro modelo/provedor."
             ),
         }.get(error.code, "Confira a disponibilidade do provedor.")
+        provider_status = ""
+        if (
+            urlsplit(base_url).hostname == "generativelanguage.googleapis.com"
+            and error.fp is not None and not error.fp.closed
+        ):
+            # Only expose documented status identifiers, never provider messages or bodies.
+            try:
+                provider_error = json.loads(error.read(65536))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                provider_error = None
+            except OSError:
+                LOGGER.warning("llm_error_status_unreadable http_status=%s", error.code)
+                provider_error = None
+            if isinstance(provider_error, dict):
+                details = provider_error.get("error")
+                if isinstance(details, dict) and details.get("status") in (
+                    "INVALID_ARGUMENT", "UNAUTHENTICATED", "PERMISSION_DENIED",
+                    "NOT_FOUND", "RESOURCE_EXHAUSTED", "FAILED_PRECONDITION",
+                    "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED",
+                ):
+                    provider_status = f" Status Gemini: {details['status']}."
         if error.code == 404:
             if model.startswith("gemini-"):
                 guidance = (
@@ -453,7 +474,7 @@ def request_chat_completion(
                 guidance = f"Confira se o modelo '{model}' está disponível e se a URL do provedor está correta."
         error.close()
         raise LLMProviderError(
-            f"Provedor LLM respondeu HTTP {error.code}. {guidance}"
+            f"Provedor LLM respondeu HTTP {error.code}.{provider_status} {guidance}"
         ) from error
     except URLError as error:
         if os.getenv("LLM_PROVIDER", "").strip().casefold() == "ollama":
@@ -578,13 +599,14 @@ def generate_interpretation(
     }
     user_prompt = (
         "Compare baseline/optimized no holdout. Não afirme melhora universal; "
-        "destaque ganhos e quedas por modelo, sem inventar experimentos ou "
+        "destaque os ganhos e quedas mais relevantes, identificando o modelo, sem inventar experimentos ou "
         "significância estatística. Recall mede positivos identificados; "
         "precisão mede positivos preditos corretos. Recomende validação externa. "
         "Dados textuais individuais não estão habilitados. "
-        "JSON: summary (1 frase), findings (2 frases), limitations (1 frase), "
+        "JSON: summary (1 frase curta), findings (1 ou 2 frases curtas), limitations (1 frase curta), "
         "disclaimer ('Não substitui avaliação clínica.'). "
-        "Use listas de strings em findings e limitations. Máximo 140 palavras.\n"
+        "Use listas de strings em findings e limitations. Máximo 80 palavras. "
+        "Não repita toda a tabela: ela já é exibida pela aplicação.\n"
         + json.dumps(
             prompt_context, ensure_ascii=False, allow_nan=False,
             separators=(",", ":"),
@@ -604,7 +626,7 @@ Recall: positivos identificados. Precisão: predições positivas corretas.
 Compare métricas indicando modelo e valores. Recomende validação externa.
 JSON somente: summary (resposta direta), findings (lista de evidências),
 limitations (lista de limitações), disclaimer ("Não substitui avaliação clínica.").
-Máximo 80 palavras no total."""
+Máximo 60 palavras no total. Use uma evidência e uma limitação curtas."""
         user_prompt = (
             "Valores em porcentagem, na ordem metric_order.\n"
             + json.dumps(
@@ -627,7 +649,7 @@ Máximo 80 palavras no total."""
     try:
         content = request_chat_completion(
             system_prompt, user_prompt, json_mode=True,
-            max_tokens=280 if question else 360,
+            max_tokens=240 if question else 280,
             response_schema={
                 "type": "object",
                 "properties": {

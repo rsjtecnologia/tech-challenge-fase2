@@ -114,6 +114,37 @@ with TestClient(app) as client:
                 self.assertIn('href="/rotas"', client.get(path).text)
             self.assertEqual(client.get("/rotas").status_code, 200)
 
+    def test_full_profile_requires_all_dashboard_files_and_logistics_plan(self) -> None:
+        with patch.object(web_app, "APP_PROFILE", "full"), patch.object(
+            Path, "is_file", return_value=False
+        ), TestClient(web_app.app) as client:
+            response = client.get("/readyz")
+        self.assertEqual(response.status_code, 503)
+        missing = response.json()["missing_files"]
+        self.assertEqual(len(missing), 10)
+        self.assertTrue(any("phase2-logistics" in path for path in missing))
+        for filename in (
+            "graficos.json", "graficos_web.json",
+            "amostras_comparativo.parquet", "predicoes_longas.parquet",
+        ):
+            with self.subTest(filename=filename), patch.object(
+                web_app, "APP_PROFILE", "full"
+            ), patch.object(
+                Path, "is_file", lambda path: path.name != filename
+            ), TestClient(web_app.app) as client:
+                response = client.get("/readyz")
+                self.assertEqual(response.status_code, 503)
+                self.assertTrue(all(
+                    Path(path).name == filename
+                    for path in response.json()["missing_files"]
+                ))
+
+    def test_full_profile_is_ready_when_all_required_files_exist(self) -> None:
+        with patch.object(web_app, "APP_PROFILE", "full"), patch.object(
+            Path, "is_file", return_value=True
+        ), TestClient(web_app.app) as client:
+            self.assertEqual(client.get("/readyz").status_code, 200)
+
 
 @unittest.skipUnless(shutil.which("powershell"), "Windows PowerShell is required")
 class AutoscalingOrchestrationTests(unittest.TestCase):
