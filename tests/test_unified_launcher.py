@@ -38,7 +38,12 @@ class UnifiedLauncherTests(unittest.TestCase):
             "from pathlib import Path\n"
             "import sys\n"
             "print('PREFLIGHT_CHECKED', flush=True)\n"
-            "sys.exit(1 if Path('preflight_failure').exists() else 0)\n",
+            "if Path('preflight_failure').exists():\n"
+            "    print('Arquivo ausente: missing.json', file=sys.stderr)\n"
+            "    sys.exit(1)\n"
+            "if Path('preflight_provider_failure').exists():\n"
+            "    print('Teste LLM falhou: HTTP 503', file=sys.stderr)\n"
+            "    sys.exit(2)\n",
             encoding="utf-8",
         )
         checks = "\n".join(
@@ -55,10 +60,11 @@ class UnifiedLauncherTests(unittest.TestCase):
 
     def test_single_launcher_configures_provider_and_starts_web(self) -> None:
         for no_browser in (False, True):
-            with self.subTest(no_browser=no_browser):
-                self.assert_launcher_starts_web(no_browser)
+            for provider_failure in (False, True):
+                with self.subTest(no_browser=no_browser, provider_failure=provider_failure):
+                    self.assert_launcher_starts_web(no_browser, provider_failure)
 
-    def assert_launcher_starts_web(self, no_browser: bool) -> None:
+    def assert_launcher_starts_web(self, no_browser: bool, provider_failure: bool) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             modules = self.prepare_project(root, {
@@ -70,6 +76,8 @@ class UnifiedLauncherTests(unittest.TestCase):
                 "LLM_REASONING_EFFORT": "minimal",
                 "APP_PROFILE": "full",
             })
+            if provider_failure:
+                (root / "preflight_provider_failure").touch()
             with socket.socket() as listener:
                 listener.bind(("127.0.0.1", 0))
                 port = listener.getsockname()[1]
@@ -77,10 +85,7 @@ class UnifiedLauncherTests(unittest.TestCase):
                 f'$env:PYTHONPATH="{modules}"; '
                 '$env:GEMINI_API_KEY="fake-test-key"; '
                 '$env:LLM_API_KEY="previous-key"; '
-                'function Invoke-RestMethod { param($Uri,$Headers,$TimeoutSec) '
-                'if ($Uri -ne "https://generativelanguage.googleapis.com/v1beta/openai/models") { throw "url" }; '
-                'if ($Headers.Authorization -ne "Bearer fake-test-key") { throw "auth" }; '
-                'return @{data=@(@{id="models/gemini-3.1-flash-lite"})} }; '
+                'function Invoke-RestMethod { throw "Unexpected separate provider request" }; '
                 'function Start-Process { param($FilePath,$ArgumentList,[switch]$NoNewWindow,[switch]$PassThru) '
                 'if (-not (Test-Path -LiteralPath $FilePath)) { throw "python path" }; '
                 f'if ($ArgumentList[0] -ne \'"{root / "scripts" / "open_browser.py"}"\') {{ throw "browser script" }}; '
@@ -101,6 +106,9 @@ class UnifiedLauncherTests(unittest.TestCase):
         self.assertIn("PREFLIGHT_CHECKED", result.stdout)
         self.assertLess(result.stdout.index("PREFLIGHT_CHECKED"), result.stdout.index("API_WEB_STARTED"))
         self.assertIn("BROWSER_HELPER_STARTED", result.stdout)
+        if provider_failure:
+            self.assertIn("Teste LLM falhou: HTTP 503", result.stdout)
+            self.assertIn("LLM nao validada", result.stdout)
         self.assertNotIn("fake-test-key", result.stdout + result.stderr)
 
     def test_failed_preflight_prevents_server_and_browser_start_and_restores_environment(self) -> None:
@@ -117,7 +125,7 @@ class UnifiedLauncherTests(unittest.TestCase):
                 'function Invoke-RestMethod { return @{data=@(@{id="models/gemini-3.1-flash-lite"})} }; '
                 'function Start-Process { throw "BROWSER_MUST_NOT_START" }; '
                 f'try {{ & "{root / "run.ps1"}" -Port {port} }} '
-                'catch { Write-Host "EXPECTED_STARTUP_FAILURE"; '
+                'catch { Write-Host "EXPECTED_STARTUP_FAILURE"; Write-Host $_.Exception.Message; '
                 'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }; exit 7 }'
             )
             result = subprocess.run(
@@ -130,6 +138,7 @@ class UnifiedLauncherTests(unittest.TestCase):
         self.assertIn("EXPECTED_STARTUP_FAILURE", result.stdout)
         self.assertNotIn("API_WEB_STARTED", result.stdout)
         self.assertNotIn("BROWSER_MUST_NOT_START", result.stdout + result.stderr)
+        self.assertIn("Arquivo ausente: missing.json", result.stdout)
 
     def test_busy_port_fails_before_provider_or_web_startup(self) -> None:
         with tempfile.TemporaryDirectory() as directory, socket.socket() as listener:

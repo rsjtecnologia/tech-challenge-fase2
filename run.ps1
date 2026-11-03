@@ -129,27 +129,6 @@ try {
         }
         $key = $key.Trim()
 
-        if ($Provider -ne "Qwen") {
-            Write-Host "Validando acesso ao modelo..."
-            try {
-                $modelInfo = Invoke-RestMethod -Uri "$baseUrl/models" `
-                    -Headers @{ Authorization = "Bearer $key" } -TimeoutSec $TimeoutSeconds
-            }
-            catch {
-                $status = "indisponivel"
-                if ($_.Exception.Response) {
-                    $status = [int]$_.Exception.Response.StatusCode
-                }
-                throw "Nao foi possivel validar $Provider (HTTP $status). Confira chave, acesso ao modelo, rede e limites. Aplicacao nao iniciada."
-            }
-            $availableModel = @($modelInfo.data | Where-Object {
-                $_.id -eq $Model -or ($Provider -eq "Gemini" -and $_.id -eq "models/$Model")
-            })
-            if ($availableModel.Count -eq 0) {
-                throw "O provedor nao confirmou o modelo solicitado. Aplicacao nao iniciada."
-            }
-        }
-
         $env:LLM_PROVIDER = "openai_compatible"
         $env:LLM_BASE_URL = $baseUrl
         $env:LLM_MODEL = $Model
@@ -162,9 +141,25 @@ try {
     }
 
     Write-Host "Verificando dados locais e geracao do provedor..." -ForegroundColor Cyan
-    & $venvPython -m src.web.preflight
-    if ($LASTEXITCODE -ne 0) {
-        throw "Verificacao inicial falhou. Aplicacao nao iniciada; confira o erro acima."
+    $previousErrorPreference = $ErrorActionPreference
+    try {
+        # Capture native stderr without PowerShell replacing it with NativeCommandError.
+        $ErrorActionPreference = "Continue"
+        $preflightOutput = & $venvPython -m src.web.preflight 2>&1
+        $preflightExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorPreference
+    }
+    $preflightDetails = ($preflightOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine
+    if ($preflightExitCode -eq 2) {
+        Write-Warning "$preflightDetails`nAPI/web iniciara com LLM nao validada. Consultas ao provedor podem falhar; nao houve troca de modelo nem simulacao de resposta."
+    }
+    elseif ($preflightExitCode -ne 0) {
+        throw "Verificacao inicial falhou (codigo $preflightExitCode). Aplicacao nao iniciada.`n$preflightDetails"
+    }
+    else {
+        Write-Host $preflightDetails
     }
 
     Write-Host ""

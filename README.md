@@ -14,8 +14,8 @@ gerar os resultados e iniciar a aplicação.
 Para iniciar:
 
 ```powershell
-git clone https://github.com/rsjtecnologia/tech-challenge-fase1-1.git
-Set-Location .\tech-challenge-fase1-1
+git clone https://github.com/rsjtecnologia/tech-challenge-fase2.git
+Set-Location .\tech-challenge-fase2
 . .\pre_execucao.ps1
 .\run_notebooks.ps1
 ```

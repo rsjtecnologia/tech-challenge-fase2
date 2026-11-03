@@ -35,14 +35,21 @@ def main() -> int:
             json_mode=True,
             max_tokens=128,
         )
-    except (LLMConfigurationError, LLMProviderError) as error:
+    except LLMConfigurationError as error:
         print(
-            f"Teste LLM falhou: {error}\n"
-            "O servidor ainda nao foi iniciado. Confira o provedor/modelo; "
-            "reiniciar a API nao corrige indisponibilidade externa.",
+            f"Configuracao LLM invalida: {error}",
             file=sys.stderr,
         )
         return 1
+    except LLMProviderError as error:
+        print(
+            f"Teste LLM falhou: {error}\n"
+            "A API local pode iniciar, mas a geracao LLM nao foi validada. "
+            "Confira o provedor/modelo; reiniciar a API nao corrige "
+            "indisponibilidade externa.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         result = json.loads(content)
         valid = isinstance(result, dict) and result == {"ok": True} and result["ok"] is True
@@ -50,7 +57,7 @@ def main() -> int:
         valid = False
     if not valid:
         print("Teste LLM falhou: resposta diferente do JSON esperado.", file=sys.stderr)
-        return 1
+        return 2
     print(
         "Geracao LLM: OK neste momento. O provedor pode ficar indisponivel depois.",
         flush=True,

@@ -15,7 +15,7 @@ from src.web.preflight import main
 
 class StartupPreflightTests(unittest.TestCase):
     def test_preflight_uses_http_transport_and_handles_provider_outages(self) -> None:
-        for statuses, expected in (([503, 200], 0), ([503, 503, 503], 1), ([401], 1)):
+        for statuses, expected in (([503, 200], 0), ([503, 503, 503], 2), ([401], 2)):
             with self.subTest(statuses=statuses):
                 requests = []
 
@@ -100,9 +100,10 @@ class StartupPreflightTests(unittest.TestCase):
             ), patch(
                 "src.web.preflight.request_chat_completion", side_effect=error
             ), redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()) as errors:
-                self.assertEqual(main(), 1)
+                self.assertEqual(main(), 1 if isinstance(error, LLMConfigurationError) else 2)
                 self.assertIn(str(error), errors.getvalue())
-                self.assertIn("O servidor ainda nao foi iniciado", errors.getvalue())
+                if isinstance(error, LLMProviderError):
+                    self.assertIn("A API local pode iniciar", errors.getvalue())
                 self.assertNotIn("Geracao LLM: OK", output.getvalue())
 
     def test_invalid_probe_content_fails_without_echoing_content(self) -> None:
@@ -112,6 +113,6 @@ class StartupPreflightTests(unittest.TestCase):
             ), patch(
                 "src.web.preflight.request_chat_completion", return_value=content
             ), redirect_stdout(StringIO()), redirect_stderr(StringIO()) as errors:
-                self.assertEqual(main(), 1)
+                self.assertEqual(main(), 2)
                 self.assertIn("JSON esperado", errors.getvalue())
                 self.assertNotIn(content, errors.getvalue())

@@ -110,7 +110,12 @@ Depois de gerar os resultados, execute na raiz do projeto:
 3. Aguarde a validação dos arquivos locais e uma geração LLM curta com mensagem
    sintética, sem dados do projeto, usando a mesma integração da aplicação.
    Essa chamada pode ter custo no provedor online. HTTP 503 é repetido até três
-   vezes; se o teste falhar, o launcher interrompe antes de iniciar o servidor.
+   vezes. Se o provedor falhar, o launcher exibe o diagnóstico e inicia a
+   API/web com o aviso **LLM nao validada**, sem alterar o modelo nem gerar uma
+   resposta simulada. As ações LLM continuam sujeitas ao erro do provedor.
+   Configuração inválida, falha interna ou arquivos ausentes interrompem a
+   inicialização; a mensagem final inclui o diagnóstico, não apenas “confira
+   o erro acima”. A geração é testada diretamente, sem depender de `/models`.
    Se faltarem artefatos, execute os notebooks; o launcher não gera resultados.
    O teste confirma disponibilidade naquele momento, não garante chamadas futuras.
 4. Após **API/web iniciando**, aguarde **API local: OK. Dados locais: OK**:
@@ -159,7 +164,7 @@ copiar a chave para eles: com a API ativa, abra outro terminal na raiz, execute
 | Chave ausente, inválida ou sem permissão | Confira a chave e as permissões do projeto no AI Studio; reinicie e informe a chave correta. |
 | Modelo não confirmado / HTTP 404 | Confira o identificador e o acesso na conta. Use `.\run.ps1 -Provider Gemini -Model IDENTIFICADOR_DO_MODELO` com um modelo compatível; não há troca automática. |
 | HTTP 429 | Confira cota, limites e eventual faturamento do projeto. Evite repetir chamadas continuamente. |
-| HTTP 503 do provedor | A aplicação faz até 3 tentativas no mesmo modelo, com espera progressiva e pequena variação aleatória, dentro do tempo configurado. Se persistir, confira a disponibilidade do Gemini e tente mais tarde; não há troca automática de modelo. Se ocorrer no teste inicial, o servidor não inicia; se ocorrer depois, não significa que a API local caiu. Confira `http://127.0.0.1:8020/healthz` e `/readyz` (ajuste a porta se necessário). |
+| HTTP 503 do provedor | A aplicação faz até 3 tentativas no mesmo modelo, com espera progressiva e pequena variação aleatória, dentro do tempo configurado. Se persistir, confira a disponibilidade do Gemini e tente mais tarde; não há troca automática de modelo. No teste inicial, a API/web inicia com aviso de LLM não validada. O erro do provedor não significa que a API local caiu. Confira `http://127.0.0.1:8020/healthz` e `/readyz` (ajuste a porta se necessário). |
 | Timeout | Confira rede e disponibilidade do provedor. Para espera maior, use `.\run.ps1 -TimeoutSeconds 120`; aumentar o tempo não corrige indisponibilidade HTTP 503. |
 | Porta 8020 ocupada | Encerre sua execução anterior com Ctrl+C ou use `.\run.ps1 -Port 8021` e abra a nova URL. Para notebooks, use `.\run_notebooks.ps1 -ApiPort 8021`. |
 | Métricas ou comparação genética ausentes | Execute os pipelines e experimentos descritos em **Gerar os resultados**; iniciar a web não produz esses arquivos. |
