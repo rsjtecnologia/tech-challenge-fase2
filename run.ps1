@@ -129,46 +129,19 @@ try {
         }
         $key = $key.Trim()
 
-        Write-Host "Validando acesso ao modelo..."
-        try {
-            if ($Provider -eq "Qwen") {
-                Write-Host "O preflight Qwen envia uma completion curta sintetica, sujeita a cobranca."
-                $probe = @{
-                    model = $Model
-                    messages = @(@{ role = "user"; content = 'Return JSON only: {"ok":true}.' })
-                    max_tokens = 32
-                    enable_thinking = $false
-                    response_format = @{ type = "json_object" }
-                } | ConvertTo-Json -Depth 5 -Compress
-                $completion = Invoke-RestMethod -Uri "$baseUrl/chat/completions" -Method Post `
-                    -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" `
-                    -Body $probe -TimeoutSec $TimeoutSeconds
-            }
-            else {
+        if ($Provider -ne "Qwen") {
+            Write-Host "Validando acesso ao modelo..."
+            try {
                 $modelInfo = Invoke-RestMethod -Uri "$baseUrl/models" `
                     -Headers @{ Authorization = "Bearer $key" } -TimeoutSec $TimeoutSeconds
             }
-        }
-        catch {
-            $status = "indisponivel"
-            if ($_.Exception.Response) {
-                $status = [int]$_.Exception.Response.StatusCode
-            }
-            throw "Nao foi possivel validar $Provider (HTTP $status). Confira chave, acesso ao modelo, rede e limites. Aplicacao nao iniciada."
-        }
-
-        if ($Provider -eq "Qwen") {
-            try {
-                $probeResult = $completion.choices[0].message.content | ConvertFrom-Json
-                if ($probeResult.ok -isnot [bool] -or -not $probeResult.ok -or $completion.choices[0].finish_reason -ne "stop") {
-                    throw "Invalid probe"
-                }
-            }
             catch {
-                throw "Qwen nao retornou o JSON de teste esperado. Confira o modelo e o modo sem thinking. Aplicacao nao iniciada."
+                $status = "indisponivel"
+                if ($_.Exception.Response) {
+                    $status = [int]$_.Exception.Response.StatusCode
+                }
+                throw "Nao foi possivel validar $Provider (HTTP $status). Confira chave, acesso ao modelo, rede e limites. Aplicacao nao iniciada."
             }
-        }
-        else {
             $availableModel = @($modelInfo.data | Where-Object {
                 $_.id -eq $Model -or ($Provider -eq "Gemini" -and $_.id -eq "models/$Model")
             })
@@ -188,20 +161,24 @@ try {
         $env:APP_PROFILE = "full"
     }
 
+    Write-Host "Verificando dados locais e geracao do provedor..." -ForegroundColor Cyan
+    & $venvPython -m src.web.preflight
+    if ($LASTEXITCODE -ne 0) {
+        throw "Verificacao inicial falhou. Aplicacao nao iniciada; confira o erro acima."
+    }
+
     Write-Host ""
     Write-Host "API/web iniciando em http://127.0.0.1:$Port" -ForegroundColor Green
     Write-Host "Documentacao da API: http://127.0.0.1:$Port/docs"
     Write-Host "Mantenha este terminal aberto; Ctrl+C encerra o servidor."
     Write-Host ""
-    if (-not $NoBrowser) {
-        $browserScript = Join-Path $root "scripts\open_browser.py"
-        if (-not (Test-Path -LiteralPath $browserScript -PathType Leaf)) {
-            throw "Preparador do navegador nao encontrado: $browserScript"
-        }
-        $browserProcess = Start-Process -FilePath $venvPython -ArgumentList @(
-            "`"$browserScript`"", "--port", [string]$Port
-        ) -NoNewWindow -PassThru
+    $browserScript = Join-Path $root "scripts\open_browser.py"
+    if (-not (Test-Path -LiteralPath $browserScript -PathType Leaf)) {
+        throw "Verificador da API/navegador nao encontrado: $browserScript"
     }
+    $browserArguments = @("`"$browserScript`"", "--port", [string]$Port)
+    if ($NoBrowser) { $browserArguments += "--no-browser" }
+    $browserProcess = Start-Process -FilePath $venvPython -ArgumentList $browserArguments -NoNewWindow -PassThru
     & $venvPython -m uvicorn src.web.app:app --host 127.0.0.1 --port $Port --reload
     if ($LASTEXITCODE -ne 0) {
         throw "A aplicacao API/web encerrou com codigo $LASTEXITCODE."

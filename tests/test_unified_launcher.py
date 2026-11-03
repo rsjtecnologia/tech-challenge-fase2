@@ -30,6 +30,17 @@ class UnifiedLauncherTests(unittest.TestCase):
         shutil.copyfile(ROOT / "scripts" / "open_browser.py", root / "scripts" / "open_browser.py")
         modules = root / "modules"
         modules.mkdir()
+        web = modules / "src" / "web"
+        web.mkdir(parents=True)
+        (modules / "src" / "__init__.py").touch()
+        (web / "__init__.py").touch()
+        (web / "preflight.py").write_text(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "print('PREFLIGHT_CHECKED', flush=True)\n"
+            "sys.exit(1 if Path('preflight_failure').exists() else 0)\n",
+            encoding="utf-8",
+        )
         checks = "\n".join(
             f"assert os.environ.get({name!r}) == {value!r}, {('environment: ' + name)!r}"
             for name, value in expected_environment.items()
@@ -74,6 +85,7 @@ class UnifiedLauncherTests(unittest.TestCase):
                 'if (-not (Test-Path -LiteralPath $FilePath)) { throw "python path" }; '
                 f'if ($ArgumentList[0] -ne \'"{root / "scripts" / "open_browser.py"}"\') {{ throw "browser script" }}; '
                 f'if ($ArgumentList[1] -ne "--port" -or $ArgumentList[2] -ne "{port}") {{ throw "browser port" }}; '
+                f'if (($ArgumentList -contains "--no-browser") -ne ${str(no_browser).lower()}) {{ throw "browser flag" }}; '
                 'Write-Host "BROWSER_HELPER_STARTED"; return [pscustomobject]@{HasExited=$true} }; '
                 f'& "{root / "run.ps1"}" -Port {port} {"-NoBrowser" if no_browser else ""}; '
                 'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }'
@@ -86,8 +98,38 @@ class UnifiedLauncherTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("API_WEB_STARTED", result.stdout)
-        self.assertEqual("BROWSER_HELPER_STARTED" in result.stdout, not no_browser)
+        self.assertIn("PREFLIGHT_CHECKED", result.stdout)
+        self.assertLess(result.stdout.index("PREFLIGHT_CHECKED"), result.stdout.index("API_WEB_STARTED"))
+        self.assertIn("BROWSER_HELPER_STARTED", result.stdout)
         self.assertNotIn("fake-test-key", result.stdout + result.stderr)
+
+    def test_failed_preflight_prevents_server_and_browser_start_and_restores_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            modules = self.prepare_project(root, {})
+            (root / "preflight_failure").touch()
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                port = listener.getsockname()[1]
+            command = (
+                f'$env:PYTHONPATH="{modules}"; $env:GEMINI_API_KEY="fake-test-key"; '
+                '$env:LLM_API_KEY="previous-key"; '
+                'function Invoke-RestMethod { return @{data=@(@{id="models/gemini-3.1-flash-lite"})} }; '
+                'function Start-Process { throw "BROWSER_MUST_NOT_START" }; '
+                f'try {{ & "{root / "run.ps1"}" -Port {port} }} '
+                'catch { Write-Host "EXPECTED_STARTUP_FAILURE"; '
+                'if ($env:LLM_API_KEY -ne "previous-key") { throw "env not restored" }; exit 7 }'
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 '$ErrorActionPreference="Stop"; ' + command],
+                capture_output=True, text=True, timeout=60,
+            )
+        self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+        self.assertIn("PREFLIGHT_CHECKED", result.stdout)
+        self.assertIn("EXPECTED_STARTUP_FAILURE", result.stdout)
+        self.assertNotIn("API_WEB_STARTED", result.stdout)
+        self.assertNotIn("BROWSER_MUST_NOT_START", result.stdout + result.stderr)
 
     def test_busy_port_fails_before_provider_or_web_startup(self) -> None:
         with tempfile.TemporaryDirectory() as directory, socket.socket() as listener:

@@ -438,6 +438,7 @@ def request_chat_completion(
             429: "Limite de requisições ou saldo da conta; aguarde e confira o painel do provedor.",
             503: (
                 "O serviço está temporariamente indisponível ou sobrecarregado. "
+                "Esta falha é do provedor LLM, não da inicialização da API local. "
                 "Aguarde alguns segundos e tente novamente; se persistir, confira "
                 "o status e os limites do provedor ou selecione outro modelo/provedor."
             ),

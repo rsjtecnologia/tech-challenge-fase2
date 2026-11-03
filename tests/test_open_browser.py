@@ -19,16 +19,16 @@ class OpenBrowserTests(unittest.TestCase):
                 "http://127.0.0.1:8021/healthz", 503, "Starting", {}, BytesIO()
             )
             request.side_effect = [
-                URLError("Connection refused"), unavailable, TimeoutError(), response,
+                URLError("Connection refused"), unavailable, TimeoutError(), response, response,
             ]
             self.assertTrue(open_when_ready(8021))
-            self.assertEqual(request.call_count, 4)
+            self.assertEqual(request.call_count, 5)
             self.assertEqual(sleep.call_count, 3)
             self.assertTrue(unavailable.fp.closed)
-            self.assertTrue(all(
-                call.args[0] == "http://127.0.0.1:8021/healthz"
-                for call in request.call_args_list
-            ))
+            self.assertEqual(
+                [call.args[0] for call in request.call_args_list],
+                ["http://127.0.0.1:8021/healthz"] * 4 + ["http://127.0.0.1:8021/readyz"],
+            )
             browser.assert_called_once_with("http://127.0.0.1:8021/", new=2)
 
     def test_timeout_does_not_open_browser_and_reports_manual_url(self) -> None:
@@ -62,7 +62,38 @@ class OpenBrowserTests(unittest.TestCase):
                 "sys.argv", ["open_browser.py", "--port", "8021"]
             ), patch("scripts.open_browser.open_when_ready", return_value=opened) as open_browser:
                 self.assertEqual(main(), expected)
-                open_browser.assert_called_once_with(8021)
+                open_browser.assert_called_once_with(8021, no_browser=False)
+
+    def test_no_browser_still_checks_health_and_readiness(self) -> None:
+        with patch("scripts.open_browser.urlopen") as request, patch(
+            "scripts.open_browser.webbrowser.open"
+        ) as browser:
+            request.return_value.__enter__.return_value.status = 200
+            self.assertTrue(open_when_ready(8020, no_browser=True))
+            self.assertEqual(request.call_count, 2)
+            browser.assert_not_called()
+
+    def test_readiness_failure_does_not_open_browser(self) -> None:
+        with patch("scripts.open_browser.urlopen") as request, patch(
+            "scripts.open_browser.webbrowser.open"
+        ) as browser, patch("scripts.open_browser.time.sleep"), patch(
+            "scripts.open_browser.time.monotonic", side_effect=[0, 0, 60, 60]
+        ), redirect_stderr(StringIO()) as errors:
+            response = request.return_value
+            response.__enter__.return_value.status = 200
+            request.side_effect = [
+                response, HTTPError("http://127.0.0.1:8020/readyz", 503, "Not ready", {}, BytesIO()),
+            ]
+            self.assertFalse(open_when_ready(8020))
+            browser.assert_not_called()
+            self.assertIn("dados prontos", errors.getvalue())
+
+    def test_cli_no_browser_option(self) -> None:
+        with patch("sys.argv", ["open_browser.py", "--port", "8020", "--no-browser"]), patch(
+            "scripts.open_browser.open_when_ready", return_value=True
+        ) as check:
+            self.assertEqual(main(), 0)
+            check.assert_called_once_with(8020, no_browser=True)
 
     def test_invalid_port_is_rejected_before_network(self) -> None:
         for port in ("0", "65536", "invalid"):

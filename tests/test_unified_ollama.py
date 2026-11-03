@@ -28,6 +28,7 @@ class UnifiedOllamaLauncherTests(unittest.TestCase):
         (root / "src" / "web" / "app.py").write_text("# mocked app\n", encoding="utf-8")
         helper_directory = root / "scripts"
         helper_directory.mkdir()
+        shutil.copyfile(ROOT / "scripts" / "open_browser.py", helper_directory / "open_browser.py")
         (helper_directory / "start_ollama.ps1").write_text(
             'param([string]$Model)\n'
             '$env:LLM_PROVIDER = "ollama"\n'
@@ -37,6 +38,11 @@ class UnifiedOllamaLauncherTests(unittest.TestCase):
         )
         modules = root / "modules"
         modules.mkdir()
+        web = modules / "src" / "web"
+        web.mkdir(parents=True)
+        (modules / "src" / "__init__.py").touch()
+        (web / "__init__.py").touch()
+        (web / "preflight.py").write_text("print('OLLAMA_PREFLIGHT_CHECKED')\n", encoding="utf-8")
         (modules / "uvicorn.py").write_text(
             "import os\n"
             "assert os.environ['LLM_PROVIDER'] == 'ollama'\n"
@@ -57,6 +63,7 @@ class UnifiedOllamaLauncherTests(unittest.TestCase):
                 port = listener.getsockname()[1]
             command = (
                 f'$env:PYTHONPATH="{modules}"; $env:EXPECTED_MODEL="custom-model"; '
+                'function Start-Process { return [pscustomobject]@{HasExited=$true} }; '
                 f'& "{root / "run.ps1"}" -Provider Ollama -Model custom-model -Port {port} -NoBrowser'
             )
             result = subprocess.run(
@@ -66,6 +73,7 @@ class UnifiedOllamaLauncherTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("OLLAMA_WEB_STARTED", result.stdout)
+        self.assertIn("OLLAMA_PREFLIGHT_CHECKED", result.stdout)
 
     def test_ollama_preparation_failure_stops_web_startup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
